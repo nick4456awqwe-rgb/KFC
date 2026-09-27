@@ -12,11 +12,16 @@ USER_AGENT = (
 )
 
 
+class Cancelled(Exception):
+    """Поиск остановлен пользователем."""
+
+
 class MetsClient:
-    def __init__(self, delay=0.5, retries=3, timeout=30):
+    def __init__(self, delay=0.5, retries=3, timeout=30, cancel=None):
         self.delay = delay
         self.retries = retries
         self.timeout = timeout
+        self.cancel = cancel  # threading.Event: выставлен — новые запросы не отправляются
         self.session = requests.Session()
         self.session.headers.update({
             "User-Agent": USER_AGENT,
@@ -37,6 +42,8 @@ class MetsClient:
         url = path if path.startswith("http") else f"{BASE_URL}/{path.lstrip('/')}"
         last_error = None
         for attempt in range(1, self.retries + 1):
+            if self.cancel and self.cancel.is_set():
+                raise Cancelled()
             self._wait_turn()
             try:
                 resp = self.session.get(url, params=params, timeout=self.timeout)
