@@ -28,7 +28,7 @@ from mets.runner import run_search, save_excel
 from mets.search import ConfigError
 from mets.storage import LotCache, lots_from_json, lots_to_json
 
-VERSION = 2
+VERSION = 3
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
 DATA = ROOT / "data"
@@ -82,7 +82,7 @@ def output_dir():
 
 
 CONFIG = default_settings()
-CLIENT = MetsClient(delay=CONFIG.get("run", {}).get("delay_sec", 0.15))
+CLIENT = MetsClient(delay=CONFIG.get("run", {}).get("delay_sec", 0.1))
 CACHE = LotCache(DATA / "lots_cache.json", CONFIG.get("run", {}).get("cache_days", 7))
 
 
@@ -153,6 +153,18 @@ class Searches:
             self._save()
 
 
+def with_tech_params(settings):
+    """Технические параметры — общие из config.toml, а не из вкладки (там могли остаться старые)."""
+    settings = json.loads(json.dumps(settings))
+    run_cfg = settings.setdefault("run", {})
+    for key in ("workers", "delay_sec", "cache_days", "output_dir", "fetch_details"):
+        run_cfg.pop(key, None)
+        if key in CONFIG.get("run", {}):
+            run_cfg[key] = CONFIG["run"][key]
+    run_cfg.pop("max_pages", None)
+    return settings
+
+
 class Runs:
     """Процессы поиска: идут, остановлены, готовы. Хранятся между запусками приложения."""
 
@@ -186,11 +198,12 @@ class Runs:
             return any(r["status"] == "running" for r in self.runs)
 
     def start(self, search, fresh=False):
+        settings = json.loads(json.dumps(search["settings"]))
         run = {
             "id": uuid.uuid4().hex[:10],
             "search_id": search["id"],
             "name": search["name"],
-            "settings": json.loads(json.dumps(search["settings"])),
+            "settings": settings,
             "status": "running",
             "started": now_str(),
             "finished": None,
@@ -225,7 +238,8 @@ class Runs:
                     r["progress"] = info
 
         try:
-            result = run_search(settings, ROOT, progress=progress, cancel=cancel, client=CLIENT, cache=CACHE, fresh=fresh)
+            result = run_search(with_tech_params(settings), ROOT, progress=progress, cancel=cancel,
+                                client=CLIENT, cache=CACHE, fresh=fresh)
             (RUNS_DIR / f"{rid}.json").parent.mkdir(parents=True, exist_ok=True)
             (RUNS_DIR / f"{rid}.json").write_text(lots_to_json(result["lots"]), encoding="utf-8")
             s = result["stats"]

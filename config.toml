@@ -78,8 +78,8 @@ fetch_details = true
 # Лоты берутся из кэша, если открывались не больше N дней назад
 cache_days = 7
 # Параллельных загрузок и пауза между запросами — не нагружаем сайт
-workers = 5
-delay_sec = 0.15
+workers = 8
+delay_sec = 0.1
 # Сортировка: discount_now | difference | price_now | price_per_m2 | deadline | window_min | trade_start
 sort_by = "discount_now"
 # true — в Excel только новые и подешевевшие с прошлого запуска

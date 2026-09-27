@@ -65,8 +65,27 @@ def to_date(value):
 SITE_SORTS = {"new": "1", "ending": "2", "cheap": "4", "expensive": "3"}
 
 
-def build_query(search):
-    """Секция [search] конфига -> словарь параметров, который понимает m-ets.ru."""
+def _narrow_by_filter(search, flt):
+    """Условия [filter], которые можно без потерь проверить уже на сайте.
+
+    Лот, подешевевший на X %, по графику может упасть минимум на X % — значит, сайт может
+    сразу отбросить остальные (фильтр «Процент снижения»), и их не нужно открывать.
+    Так же минимальная цена в период не бывает ниже минимальной цены лота вообще.
+    """
+    search = dict(search)
+    need_drop = max(int(flt.get("min_discount_now_pct") or 0), int(flt.get("min_window_discount_pct") or 0))
+    if need_drop > int(search.get("max_drop_pct_from") or 0):
+        search["max_drop_pct_from"] = need_drop
+    window_max = int(flt.get("max_window_price") or 0)
+    if window_max and (not search.get("min_price_to") or window_max < int(search["min_price_to"])):
+        search["min_price_to"] = window_max
+    return search
+
+
+def build_query(search, flt=None):
+    """Секции [search] (и [filter]) конфига -> словарь параметров, который понимает m-ets.ru."""
+    if flt:
+        search = _narrow_by_filter(search, flt)
     q = {"displayby": "2"}  # показывать лоты, а не торги
 
     if search.get("keywords"):

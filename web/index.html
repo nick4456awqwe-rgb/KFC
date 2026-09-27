@@ -147,6 +147,7 @@
   .ms.boxed .ms-val { font-size: 14px; }
   .check { display: flex; align-items: center; gap: 10px; cursor: pointer; margin-top: 10px; }
   .note { margin: 14px 0 0; font-size: 12.5px; color: var(--muted); }
+  .warn { margin: 14px 0 0; font-size: 13px; color: #5f4b00; background: var(--warn-soft); border-radius: 8px; padding: 10px 12px; }
   .link { background: none; border: 0; color: var(--accent); cursor: pointer; padding: 0; }
   .link:hover { text-decoration: underline; }
 
@@ -292,6 +293,8 @@
           <div class="unit"><span>от</span><input class="field num" data-k="filter.min_days_left"><span>дн.</span></div></div>
         <p class="note">На публичном предложении цена падает по графику. Приложение открывает каждый лот, берёт начальную цену
           и график и считает, насколько лот подешевел. Пустое поле — без ограничения.</p>
+        <p class="warn" id="auctionWarn" hidden>На аукционе цена не снижается, поэтому с условием «цена снизилась» аукционы
+          не найдутся. Выбери «Публичное предложение» или очисти поле со снижением.</p>
       </section>
 
       <section class="card">
@@ -539,6 +542,7 @@ function apply(s) {
   $("#siteSort").value = s.search?.site_sort || "new";
   $("#sortBy").value = s.run?.sort_by || "discount_now";
   $("#onlyNew").checked = !!s.run?.only_new;
+  checkWarnings();
 }
 
 let saveTimer;
@@ -547,7 +551,13 @@ function saveNow() {
   if (!activeId) return Promise.resolve();
   return api("/api/search/save", {id: activeId, settings: collect()});
 }
-function saveSoon() { clearTimeout(saveTimer); saveTimer = setTimeout(saveNow, 500); }
+function saveSoon() { clearTimeout(saveTimer); saveTimer = setTimeout(saveNow, 500); checkWarnings(); }
+
+function checkWarnings() {
+  const forms = $$('[data-chips="search.trade_forms"] .chip[aria-pressed=true]').map(c => c.dataset.v);
+  const wantsDrop = digits($('[data-k="filter.min_discount_now_pct"]').value) > 0 || digits($('[data-k="filter.min_window_discount_pct"]').value) > 0;
+  $("#auctionWarn").hidden = !(forms.length === 1 && forms[0] === "аукцион" && wantsDrop);
+}
 
 function showMsg(text, kind = "info") { const m = $("#msg"); m.className = `msg ${kind}`; m.textContent = text; m.hidden = !text; }
 

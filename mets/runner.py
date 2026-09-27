@@ -19,7 +19,7 @@ from pathlib import Path
 from .client import Cancelled, MetsClient
 from .describe import describe_settings
 from .excel import write_excel
-from .lot import apply_window, parse_lot, update_prices
+from .lot import apply_window, parse_lot, parse_trade, update_prices
 from .search import build_query, is_excluded, iter_pages, search_url, to_date
 from .storage import LotCache
 
@@ -93,13 +93,13 @@ def run_search(settings, root, progress=None, cancel=None, client=None, cache=No
     progress = progress or (lambda info: None)
     search, flt, run = settings.get("search", {}), settings.get("filter", {}), settings.get("run", {})
     root = Path(root)
-    query = build_query(search)  # ConfigError при неверном регионе/категории/дате
+    query = build_query(search, flt)  # ConfigError при неверном регионе/категории/дате
     date_from, date_to = _window(flt)
     window_on = bool(date_from or date_to)
 
-    client = client or MetsClient(delay=run.get("delay_sec", 0.15))
+    client = client or MetsClient(delay=run.get("delay_sec", 0.1))
     cache = cache or LotCache(root / "data" / "lots_cache.json", run.get("cache_days", 7))
-    workers = run.get("workers", 5)
+    workers = run.get("workers", 8)
     max_lots = int(run.get("max_lots") or 0) or int(run.get("max_pages") or 0) * 20
     need = int(run.get("stop_after_found") or 0)
     only_new = bool(run.get("only_new"))
@@ -135,16 +135,15 @@ def run_search(settings, root, progress=None, cancel=None, client=None, cache=No
 
     def report(extra=""):
         viewed, found, total = st["viewed"], len(matched), st["total_on_site"]
+        # Сколько выдачи уже пройдено; если ждём N подходящих — и насколько близко к N
+        limit = min(max_lots, total) if max_lots and total else (max_lots or total)
+        fraction = min(1.0, (st["checked"] + st["excluded_cards"]) / limit) if limit else None
         if need:
-            fraction = min(1.0, found / need)
-        elif max_lots:
-            fraction = min(1.0, st["checked"] / max_lots)
-        else:
-            fraction = min(1.0, (st["checked"] + st["excluded_cards"]) / total) if total else None
+            fraction = max(fraction or 0, min(1.0, found / need))
         text = f"Проверено {st['checked']}"
         text += f" из {max_lots}" if max_lots else (f" из {total}" if total else "")
         text += f" · подходят {found}" + (f" из {need}" if need else "")
-        if fraction and fraction > 0.03 and not need:
+        if fraction and fraction > 0.03 and not need and st["checked"] > 20:
             eta = (time.monotonic() - started) / fraction * (1 - fraction)
             text += f" · осталось ~{eta / 60:.0f} мин" if eta >= 90 else f" · осталось ~{eta:.0f} сек"
         progress({"text": text + extra, "fraction": fraction, "viewed": viewed, "checked": st["checked"],
@@ -152,25 +151,62 @@ def run_search(settings, root, progress=None, cancel=None, client=None, cache=No
 
     progress({"text": "Ищу лоты на МЭТС…", "fraction": None, "viewed": 0, "checked": 0, "found": 0, "total_on_site": 0})
 
-    pending = {}
+    # Лоты одних торгов лежат на одной странице: качаем и разбираем её один раз на всех
+    pending = {}      # загрузка страницы торгов -> карточки лотов, которые её ждут
+    trade_jobs = {}   # номер торгов -> загрузка его страницы
+    fetched = {}      # лоты, открытые в этом поиске
     pool = ThreadPoolExecutor(max_workers=workers)
 
-    def fetch(card):
+    def trade_of(card):
+        return card.lot_id.rsplit("-", 1)[0]
+
+    def fetch_trade(card):
+        html = client.get(card.url, cancel=cancel)
+        lots = parse_trade(html, trade_of(card)) or {card.lot_id: parse_lot(html, card.lot_id)}
+        for lot in lots.values():
+            cache.put(lot)
+        return lots
+
+    def fetch_single(card):
         lot = parse_lot(client.get(card.url, cancel=cancel), card.lot_id)
         cache.put(lot)
-        return lot
+        return {card.lot_id: lot}
+
+    def submit(card, share=True):
+        trade = trade_of(card)
+        job = trade_jobs.get(trade) if share else None
+        if job is not None and job in pending:
+            pending[job].append(card)
+            return
+        job = pool.submit(fetch_trade if share else fetch_single, card)
+        pending[job] = [card]
+        if share:
+            trade_jobs[trade] = job
+
+    def use(lot, card):
+        consider(update_prices(lot, card.price_now, card.period_end, card_status(card)))
 
     def handle(done):
         for future in done:
-            card = pending.pop(future)
+            cards = pending.pop(future)
+            if trade_jobs.get(trade_of(cards[0])) is future:
+                del trade_jobs[trade_of(cards[0])]
             try:
-                lot = future.result()
+                lots = future.result()
             except Cancelled:
                 continue
             except Exception:  # лот сняли с торгов или страница не открылась
-                st["errors"] += 1
+                st["errors"] += len(cards)
                 continue
-            consider(lot)
+            fetched.update(lots)
+            for card in cards:
+                if card.lot_id in lots:
+                    use(lots[card.lot_id], card)
+                else:  # на общей странице лота не оказалось — откроем его отдельно
+                    submit(card, share=False)
+
+    def waiting():
+        return sum(len(cards) for cards in pending.values())
 
     seen = set()
     try:
@@ -189,19 +225,19 @@ def run_search(settings, root, progress=None, cancel=None, client=None, cache=No
                         st["excluded_cards"] += 1
                         continue
                     st["viewed"] += 1
-                    cached = cache.get(card.lot_id, fresh=fresh)
-                    if cached:
-                        consider(update_prices(cached, card.price_now, card.period_end, card_status(card)))
+                    known = fetched.get(card.lot_id) or cache.get(card.lot_id, fresh=fresh)
+                    if known:
+                        use(known, card)
                     else:
-                        pending[pool.submit(fetch, card)] = card
+                        submit(card)
                     if stop_reason():
                         break
                 handle([f for f in list(pending) if f.done()])
                 # Не убегаем со страницами далеко вперёд, пока лоты открываются
-                while len(pending) > workers * 4 and not stop_reason():
+                while len(pending) > workers * 3 and not stop_reason():
                     done, _ = wait(list(pending), return_when=FIRST_COMPLETED)
                     handle(done)
-                report(f" · открываю лоты: {len(pending)}" if pending else "")
+                report(f" · открываю лоты: {waiting()}" if pending else "")
                 if stop_reason() or (max_lots and st["viewed"] >= max_lots):
                     break
         finally:
@@ -210,7 +246,7 @@ def run_search(settings, root, progress=None, cancel=None, client=None, cache=No
         while pending and not stop_reason():
             done, _ = wait(list(pending), return_when=FIRST_COMPLETED, timeout=1)
             handle(done)
-            report(f" · открываю лоты: {len(pending)}" if pending else "")
+            report(f" · открываю лоты: {waiting()}" if pending else "")
     except Cancelled:
         pass  # остановили во время загрузки выдачи — отдаём то, что есть
     finally:
