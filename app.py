@@ -1,7 +1,8 @@
 """KFC — приложение для поиска лотов на МЭТС.
 
-Запуск: двойной клик по KFC.bat (или python app.py).
-Открывается окно с фильтрами как на сайте; кнопка «Найти» собирает лоты и сохраняет Excel.
+Запуск: ярлык «KFC Поиск лотов», KFC.bat или python app.py.
+Окно с вкладками поисков и фильтрами как на сайте. Каждый запуск поиска — «процесс»:
+его можно остановить, продолжить, сохранить в Excel то, что уже найдено, или удалить.
 Всё работает локально на этом компьютере. Окно закрыли — приложение само завершится.
 """
 
@@ -14,23 +15,29 @@ import time
 import tomllib
 import traceback
 import urllib.request
+import uuid
 import webbrowser
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
-from mets.client import Cancelled
+from mets.client import MetsClient
 from mets.dicts import CATEGORY_GROUPS, REGIONS, STATUSES
-from mets.runner import run_search
+from mets.runner import run_search, save_excel
 from mets.search import ConfigError
+from mets.storage import LotCache, lots_from_json, lots_to_json
 
+VERSION = 2
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
 DATA = ROOT / "data"
-SETTINGS_FILE = DATA / "app_settings.json"
+RUNS_DIR = DATA / "runs"
+STATE_FILE = DATA / "app_state.json"
+RUNS_FILE = DATA / "runs.json"
 LOG_FILE = DATA / "app.log"
 PORT = 8765
-IDLE_EXIT_SEC = 180  # окно закрыто и поиск не идёт — через 3 минуты приложение завершается
+IDLE_EXIT_SEC = 180  # окно закрыто и поиски не идут — через 3 минуты приложение завершается
 
 BROWSERS = [
     r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
@@ -47,114 +54,292 @@ def log(message):
         fh.write(f"{datetime.now():%Y-%m-%d %H:%M:%S} {message}\n")
 
 
-def output_dir(settings=None):
-    run = (settings or load_settings()).get("run", {})
-    return ROOT / run.get("output_dir", "output")
+def now_str():
+    return datetime.now().strftime("%d.%m.%Y %H:%M")
 
 
-def load_settings():
-    if SETTINGS_FILE.exists():
-        try:
-            return json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            pass
+def write_json(path, data):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    tmp.replace(path)
+
+
+def read_json(path, default):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return default
+
+
+def default_settings():
     with open(ROOT / "config.toml", "rb") as fh:
         return tomllib.load(fh)
 
 
-def save_settings(settings):
-    DATA.mkdir(parents=True, exist_ok=True)
-    SETTINGS_FILE.write_text(json.dumps(settings, ensure_ascii=False, indent=1), encoding="utf-8")
+def output_dir():
+    return ROOT / default_settings().get("run", {}).get("output_dir", "output")
 
 
-def _fmt_dt(value):
-    return value.strftime("%d.%m.%Y %H:%M") if isinstance(value, datetime) else value
+CONFIG = default_settings()
+CLIENT = MetsClient(delay=CONFIG.get("run", {}).get("delay_sec", 0.15))
+CACHE = LotCache(DATA / "lots_cache.json", CONFIG.get("run", {}).get("cache_days", 7))
 
 
-ROW_KEYS = ["number", "url", "title", "region", "categories", "form_short", "status", "start_price", "price_now",
-            "difference", "discount_now", "price_min", "discount_max", "period", "next_date", "next_price",
-            "deadline", "days_left", "area", "price_per_m2", "is_new", "prev_price"]
-
-
-def lot_row(lot):
-    return {k: _fmt_dt(lot.get(k)) for k in ROW_KEYS}
-
-
-class Job:
-    """Один поиск в фоне; окно спрашивает его состояние раз в секунду."""
+class Searches:
+    """Вкладки: у каждой своё имя и свои фильтры."""
 
     def __init__(self):
         self.lock = threading.Lock()
-        self.cancel = threading.Event()
-        self.state = {"status": "idle"}
+        state = read_json(STATE_FILE, None)
+        if not state or not state.get("searches"):
+            old = read_json(DATA / "app_settings.json", None)  # настройки из первой версии приложения
+            first = {"id": uuid.uuid4().hex[:8], "name": "Мой поиск", "settings": old or default_settings()}
+            state = {"searches": [first], "active": first["id"]}
+        self.state = state
+        self._save()
+
+    def _save(self):
+        write_json(STATE_FILE, self.state)
 
     def snapshot(self):
         with self.lock:
-            return dict(self.state)
+            return json.loads(json.dumps(self.state))
 
-    def update(self, **kw):
+    def get(self, sid):
         with self.lock:
-            self.state.update(kw)
+            return next((s for s in self.state["searches"] if s["id"] == sid), None)
 
-    @property
-    def running(self):
-        return self.snapshot().get("status") == "running"
-
-    def start(self, settings, fresh=False):
+    def new(self, copy_from=None):
         with self.lock:
-            if self.state.get("status") == "running":
-                return False
-            self.cancel = threading.Event()
-            self.state = {"status": "running", "stage": "search", "done": 0, "total": 0, "text": "Запускаю поиск…"}
-        threading.Thread(target=self._run, args=(settings, fresh), daemon=True).start()
-        return True
+            src = next((s for s in self.state["searches"] if s["id"] == copy_from), None)
+            names = {s["name"] for s in self.state["searches"]}
+            n = len(self.state["searches"]) + 1
+            while f"Поиск {n}" in names:
+                n += 1
+            item = {"id": uuid.uuid4().hex[:8],
+                    "name": f"{src['name']} (копия)" if src else f"Поиск {n}",
+                    "settings": json.loads(json.dumps(src["settings"])) if src else default_settings()}
+            self.state["searches"].append(item)
+            self.state["active"] = item["id"]
+            self._save()
+            return item
 
-    def _run(self, settings, fresh):
-        log(f"Поиск: {json.dumps(settings, ensure_ascii=False)}")
+    def update(self, sid, name=None, settings=None):
+        with self.lock:
+            item = next((s for s in self.state["searches"] if s["id"] == sid), None)
+            if item is None:
+                return None
+            if name is not None and name.strip():
+                item["name"] = name.strip()[:60]
+            if settings is not None:
+                item["settings"] = settings
+            self._save()
+            return item
+
+    def activate(self, sid):
+        with self.lock:
+            if any(s["id"] == sid for s in self.state["searches"]):
+                self.state["active"] = sid
+                self._save()
+
+    def delete(self, sid):
+        with self.lock:
+            self.state["searches"] = [s for s in self.state["searches"] if s["id"] != sid]
+            if not self.state["searches"]:
+                self.state["searches"] = [{"id": uuid.uuid4().hex[:8], "name": "Поиск 1", "settings": default_settings()}]
+            if self.state["active"] not in {s["id"] for s in self.state["searches"]}:
+                self.state["active"] = self.state["searches"][-1]["id"]
+            self._save()
+
+
+class Runs:
+    """Процессы поиска: идут, остановлены, готовы. Хранятся между запусками приложения."""
+
+    def __init__(self):
+        self.lock = threading.RLock()
+        self.cancels = {}
+        self.save_on_stop = set()
+        self.runs = read_json(RUNS_FILE, [])
+        for run in self.runs:  # приложение закрыли посреди поиска
+            if run["status"] == "running":
+                run["status"] = "stopped"
+                run["log"].append([now_str(), "прерван: приложение было закрыто"])
+        self._save()
+
+    def _save(self):
+        with self.lock:
+            write_json(RUNS_FILE, self.runs)
+
+    def _get(self, rid):
+        return next((r for r in self.runs if r["id"] == rid), None)
+
+    def _log(self, run, text):
+        run["log"].append([now_str(), text])
+
+    def list(self):
+        with self.lock:
+            return json.loads(json.dumps(self.runs))
+
+    def any_running(self):
+        with self.lock:
+            return any(r["status"] == "running" for r in self.runs)
+
+    def start(self, search, fresh=False):
+        run = {
+            "id": uuid.uuid4().hex[:10],
+            "search_id": search["id"],
+            "name": search["name"],
+            "settings": json.loads(json.dumps(search["settings"])),
+            "status": "running",
+            "started": now_str(),
+            "finished": None,
+            "progress": {"text": "Запускаю…", "fraction": None},
+            "stats": {},
+            "file": None,
+            "search_url": None,
+            "log": [],
+        }
+        with self.lock:
+            self.runs.insert(0, run)
+            self._log(run, "запущен")
+            self._launch(run, fresh)
+        return run["id"]
+
+    def _launch(self, run, fresh):
+        cancel = threading.Event()
+        self.cancels[run["id"]] = cancel
+        run["status"] = "running"
+        run["error"] = None
+        self._save()
+        threading.Thread(target=self._worker, args=(run["id"], cancel, fresh), daemon=True).start()
+
+    def _worker(self, rid, cancel, fresh):
+        with self.lock:
+            run = self._get(rid)
+            settings, name = run["settings"], run["name"]
+
+        def progress(info):
+            with self.lock:
+                if (r := self._get(rid)) is not None:
+                    r["progress"] = info
+
         try:
-            result = run_search(settings, ROOT, progress=self._progress, cancel=self.cancel, fresh=fresh)
-            self.update(status="done", file=result["file"].name, stats=result["stats"],
-                        search_url=result["search_url"], rows=[lot_row(l) for l in result["lots"][:500]],
-                        text="Готово")
-            log(f"Готово: {result['file'].name} {result['stats']}")
-        except Cancelled:
-            self.update(status="cancelled",
-                        text="Поиск остановлен. Уже открытые лоты сохранены — следующий поиск продолжит с них.")
+            result = run_search(settings, ROOT, progress=progress, cancel=cancel, client=CLIENT, cache=CACHE, fresh=fresh)
+            (RUNS_DIR / f"{rid}.json").parent.mkdir(parents=True, exist_ok=True)
+            (RUNS_DIR / f"{rid}.json").write_text(lots_to_json(result["lots"]), encoding="utf-8")
+            s = result["stats"]
+            with self.lock:
+                run = self._get(rid)
+                if run is None:  # удалили, пока шёл
+                    return
+                run.update(stats=s, search_url=result["search_url"], finished=now_str())
+                self._log(run, f"{s['reason_text']}: просмотрено {s['viewed']}, подошло {s['found']}")
+                keep_open = s["reason"] == "user" and rid not in self.save_on_stop
+                if keep_open:
+                    run["status"] = "stopped"
+                    self._save()
+                    return
+            self._write_excel(rid, result)
         except ConfigError as e:
-            self.update(status="error", text=str(e))
+            self._fail(rid, str(e))
         except Exception as e:
             log(traceback.format_exc())
-            self.update(status="error", text=f"Ошибка: {e}")
+            self._fail(rid, f"Ошибка: {e}")
+        finally:
+            with self.lock:
+                self.cancels.pop(rid, None)
+                self.save_on_stop.discard(rid)
+                self._save()
 
-    def _progress(self, stage, done, total, text):
-        self.update(stage=stage, done=done, total=total, text=text)
+    def _write_excel(self, rid, result):
+        with self.lock:
+            run = self._get(rid)
+            self._log(run, "сохранён в Excel")
+            settings, name, log_rows = run["settings"], run["name"], list(run["log"])
+        path = save_excel(result, settings, ROOT, name, log=log_rows)
+        with self.lock:
+            run = self._get(rid)
+            if run is not None:
+                if run.get("file") and run["file"] != path.name:
+                    (output_dir() / run["file"]).unlink(missing_ok=True)  # старая выгрузка этого же процесса
+                run.update(status="done", file=path.name)
+                self._save()
+
+    def _fail(self, rid, text):
+        with self.lock:
+            run = self._get(rid)
+            if run is not None:
+                run.update(status="error", error=text, finished=now_str())
+                self._log(run, text)
+                self._save()
+
+    def stop(self, rid, save=False):
+        with self.lock:
+            run = self._get(rid)
+            if run is None or run["status"] != "running":
+                return False
+            if save:
+                self.save_on_stop.add(rid)
+            self._log(run, "завершён с сохранением в Excel" if save else "остановлен")
+            run["progress"]["text"] = "Останавливаю…"
+            self.cancels[rid].set()
+            return True
+
+    def resume(self, rid, fresh=False):
+        with self.lock:
+            run = self._get(rid)
+            if run is None or run["status"] == "running":
+                return False
+            self._log(run, "продолжен")
+            run["progress"] = {"text": "Продолжаю… уже проверенные лоты берутся из памяти", "fraction": None}
+            self._launch(run, fresh)
+            return True
+
+    def lots(self, rid):
+        path = RUNS_DIR / f"{rid}.json"
+        return lots_from_json(path.read_text(encoding="utf-8")) if path.exists() else []
+
+    def save(self, rid):
+        with self.lock:
+            run = self._get(rid)
+            if run is None or run["status"] == "running":
+                return False
+            result = {"lots": self.lots(rid), "stats": run.get("stats") or {}, "search_url": run.get("search_url")}
+        self._write_excel(rid, result)
+        return True
+
+    def delete(self, rid):
+        with self.lock:
+            run = self._get(rid)
+            if run is None:
+                return False
+            if rid in self.cancels:
+                self.cancels[rid].set()
+            self.runs.remove(run)
+            self._save()
+        (RUNS_DIR / f"{rid}.json").unlink(missing_ok=True)
+        if run.get("file"):
+            (output_dir() / run["file"]).unlink(missing_ok=True)
+        return True
 
 
-JOB = Job()
+SEARCHES = Searches()
+RUNS = Runs()
 LAST_SEEN = [time.monotonic()]
 
-
-def list_files():
-    folder = output_dir()
-    if not folder.exists():
-        return []
-    files = sorted(folder.glob("lots_*.xlsx"), key=lambda p: p.stat().st_mtime, reverse=True)[:30]
-    return [{"name": p.name, "date": datetime.fromtimestamp(p.stat().st_mtime).strftime("%d.%m.%Y %H:%M"),
-             "size_kb": round(p.stat().st_size / 1024)} for p in files]
+ROW_KEYS = ["number", "url", "title", "region", "categories", "trade_form", "status", "trade_start", "start_price",
+            "price_now", "difference", "discount_now", "price_min", "discount_max", "period", "next_date",
+            "next_price", "deadline", "days_left", "bids", "area", "price_per_m2", "is_new", "prev_price",
+            "win_price_start", "win_price_min", "win_min_date", "win_discount"]
 
 
-def cache_size():
-    path = DATA / "lots_cache.json"
-    if not path.exists():
-        return 0
-    try:
-        return sum(1 for v in json.loads(path.read_text(encoding="utf-8")).values() if "lot" in v)
-    except (OSError, json.JSONDecodeError):
-        return 0
+def lot_row(lot):
+    return {k: (v.strftime("%d.%m.%Y %H:%M") if isinstance(v := lot.get(k), datetime) else v) for k in ROW_KEYS}
 
 
 class Handler(BaseHTTPRequestHandler):
-    def log_message(self, *args):  # не засоряем вывод
+    def log_message(self, *args):
         pass
 
     def _send(self, code, body, content_type="application/json; charset=utf-8"):
@@ -168,63 +353,91 @@ class Handler(BaseHTTPRequestHandler):
 
     def _body(self):
         length = int(self.headers.get("Content-Length") or 0)
-        return json.loads(self.rfile.read(length) or b"{}") if length else {}
+        return json.loads(self.rfile.read(length)) if length else {}
 
     def do_GET(self):
         LAST_SEEN[0] = time.monotonic()
-        path = self.path.split("?", 1)[0]
-        if path in ("/", "/index.html"):
+        url = urlparse(self.path)
+        query = parse_qs(url.query)
+        if url.path in ("/", "/index.html"):
             self._send(200, (WEB / "index.html").read_bytes(), "text/html; charset=utf-8")
-        elif path == "/api/ping":
-            self._send(200, {"app": "kfc"})
-        elif path == "/api/options":
+        elif url.path == "/api/ping":
+            self._send(200, {"app": "kfc", "version": VERSION})
+        elif url.path == "/api/options":
             self._send(200, {
                 "regions": sorted(REGIONS, key=lambda r: r.removeprefix("г. ").lower()),
                 "category_groups": CATEGORY_GROUPS,
                 "statuses": list(STATUSES),
-                "settings": load_settings(),
-                "cache_size": cache_size(),
+                "defaults": default_settings(),
             })
-        elif path == "/api/status":
-            self._send(200, JOB.snapshot())
-        elif path == "/api/files":
-            self._send(200, list_files())
+        elif url.path == "/api/state":
+            runs = RUNS.list()
+            for r in runs:
+                r.pop("settings", None)
+            self._send(200, {**SEARCHES.snapshot(), "runs": runs, "cache_size": CACHE.size()})
+        elif url.path == "/api/run/rows":
+            rid = query.get("id", [""])[0]
+            run = next((r for r in RUNS.list() if r["id"] == rid), None)
+            if run is None:
+                return self._send(404, {"error": "Процесс не найден"})
+            lots = RUNS.lots(rid)
+            f = run["settings"].get("filter", {})
+            self._send(200, {"rows": [lot_row(l) for l in lots[:500]], "total": len(lots),
+                             "window": bool(f.get("window_from") or f.get("window_to"))})
         else:
             self._send(404, {"error": "not found"})
 
     def do_POST(self):
         LAST_SEEN[0] = time.monotonic()
-        path = self.path.split("?", 1)[0]
+        path = urlparse(self.path).path
         body = self._body()
-        if path == "/api/settings":
-            save_settings(body["settings"])
-            self._send(200, {"ok": True})
-        elif path == "/api/search":
-            save_settings(body["settings"])
-            ok = JOB.start(body["settings"], fresh=bool(body.get("fresh")))
-            self._send(200, {"ok": ok, "error": None if ok else "Поиск уже идёт"})
-        elif path == "/api/stop":
-            JOB.cancel.set()
-            self._send(200, {"ok": True})
+        ok = True
+        if path == "/api/search/save":
+            ok = SEARCHES.update(body["id"], body.get("name"), body.get("settings")) is not None
+        elif path == "/api/search/new":
+            return self._send(200, SEARCHES.new(body.get("copy_from")))
+        elif path == "/api/search/activate":
+            SEARCHES.activate(body["id"])
+        elif path == "/api/search/delete":
+            SEARCHES.delete(body["id"])
+        elif path == "/api/run/start":
+            if body.get("settings") is not None:
+                SEARCHES.update(body["search_id"], settings=body["settings"])
+            search = SEARCHES.get(body["search_id"])
+            if search is None:
+                return self._send(404, {"ok": False, "error": "Вкладка не найдена"})
+            return self._send(200, {"ok": True, "id": RUNS.start(search, fresh=bool(body.get("fresh")))})
+        elif path == "/api/run/stop":
+            ok = RUNS.stop(body["id"], save=bool(body.get("save")))
+        elif path == "/api/run/resume":
+            ok = RUNS.resume(body["id"])
+        elif path == "/api/run/save":
+            ok = RUNS.save(body["id"])
+        elif path == "/api/run/delete":
+            ok = RUNS.delete(body["id"])
         elif path == "/api/open":
             folder = output_dir().resolve()
+            folder.mkdir(parents=True, exist_ok=True)
             target = folder
             if body.get("file"):
                 target = (folder / Path(body["file"]).name).resolve()
                 if target.parent != folder or not target.exists():
-                    return self._send(404, {"ok": False, "error": "Файл не найден"})
-            folder.mkdir(parents=True, exist_ok=True)
+                    return self._send(404, {"ok": False, "error": "Файл не найден — возможно, его удалили"})
             os.startfile(target)
+        elif path == "/api/quit":
             self._send(200, {"ok": True})
+            threading.Thread(target=self.server.shutdown, daemon=True).start()
+            return
         else:
-            self._send(404, {"error": "not found"})
+            return self._send(404, {"error": "not found"})
+        self._send(200, {"ok": ok})
 
 
 def open_window(url):
     """Окно без адресной строки (Edge/Chrome в режиме приложения), иначе — обычный браузер."""
     for exe in BROWSERS:
         if os.path.exists(exe):
-            subprocess.Popen([exe, f"--app={url}", "--window-size=1320,900"])
+            subprocess.Popen([exe, f"--app={url}", "--window-size=1360,920"])
             return
     webbrowser.open(url)
 
@@ -232,35 +445,57 @@ def open_window(url):
 def watchdog(server):
     while True:
         time.sleep(15)
-        if not JOB.running and time.monotonic() - LAST_SEEN[0] > IDLE_EXIT_SEC:
+        if not RUNS.any_running() and time.monotonic() - LAST_SEEN[0] > IDLE_EXIT_SEC:
             log("Окно закрыто — выхожу")
             server.shutdown()
             return
 
 
-def main():
-    url = f"http://127.0.0.1:{PORT}/"
+def _ping(url):
     try:
-        server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
-    except OSError:
-        try:  # приложение уже запущено — просто открываем ещё одно окно
-            with urllib.request.urlopen(url + "api/ping", timeout=2) as resp:
-                if json.loads(resp.read()).get("app") == "kfc":
-                    open_window(url)
-                    return
-        except Exception:
-            pass
-        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)  # порт занят чем-то другим — берём свободный
-        url = f"http://127.0.0.1:{server.server_port}/"
+        with urllib.request.urlopen(url + "api/ping", timeout=2) as resp:
+            return json.loads(resp.read())
+    except Exception:
+        return None
 
+
+def bind_server():
+    """Порт 8765; если там уже KFC — своей версии открываем окно, старую просим закрыться."""
+    port = int(sys.argv[sys.argv.index("--port") + 1]) if "--port" in sys.argv else PORT
+    url = f"http://127.0.0.1:{port}/"
+    for _ in range(2):
+        try:
+            return ThreadingHTTPServer(("127.0.0.1", port), Handler), url
+        except OSError:
+            info = _ping(url)
+            if info and info.get("app") == "kfc" and info.get("version") == VERSION:
+                return None, url
+            if info and info.get("app") == "kfc":
+                try:
+                    urllib.request.urlopen(urllib.request.Request(url + "api/quit", data=b"{}", method="POST"), timeout=2)
+                except Exception:
+                    pass
+                time.sleep(1.5)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)  # порт занят — берём свободный
+    return server, f"http://127.0.0.1:{server.server_port}/"
+
+
+def main():
+    server, url = bind_server()
+    no_window = "--no-window" in sys.argv
+    if server is None:  # уже запущено — просто ещё одно окно
+        if not no_window:
+            open_window(url)
+        return
     log(f"Запуск {url}")
     if sys.stdout:  # под pythonw консоли нет
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
         print(f"KFC запущен: {url}\nЗакройте окно приложения, чтобы выйти.", flush=True)
     threading.Thread(target=watchdog, args=(server,), daemon=True).start()
-    if "--no-window" not in sys.argv:
+    if not no_window:
         threading.Timer(0.3, open_window, args=(url,)).start()
     server.serve_forever()
+    CACHE.save()
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>KFC — лоты МЭТС</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230B57D0'/%3E%3Ctext x='16' y='21' font-family='Segoe UI,Arial' font-size='11' font-weight='700' fill='white' text-anchor='middle'%3EKFC%3C/text%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230B57D0'/%3E%3Ctext x='16' y='20' font-family='Segoe UI,Arial' font-size='11' font-weight='700' fill='white' text-anchor='middle'%3EKFC%3C/text%3E%3C/svg%3E">
 <style>
   :root {
     --bg: #eef2f7;
@@ -21,6 +21,7 @@
     --good: #137333;
     --good-soft: #e6f4ea;
     --new-soft: #eef7ee;
+    --warn: #8a5a00;
     --warn-soft: #fff4d6;
     --bad: #c5221f;
     --bad-soft: #fce8e6;
@@ -37,37 +38,54 @@
   }
   button, input, select { font: inherit; color: inherit; }
   [hidden] { display: none !important; }
-  .wrap { max-width: 1280px; margin: 0 auto; padding: 20px 24px 40px; }
+  .wrap { max-width: 1320px; margin: 0 auto; padding: 18px 24px 40px; }
 
   /* Шапка */
-  .top { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+  .top { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
   .brand { display: flex; align-items: center; gap: 14px; }
   .logo {
-    width: 46px; height: 46px; border-radius: 11px; background: var(--accent); color: #fff;
-    display: grid; place-items: center; font-weight: 800; letter-spacing: .5px; font-size: 15px;
+    width: 44px; height: 44px; border-radius: 11px; background: var(--accent); color: #fff;
+    display: grid; place-items: center; font-weight: 800; letter-spacing: .5px; font-size: 14px;
   }
-  .brand h1 { margin: 0; font-size: 26px; line-height: 1.1; letter-spacing: -.3px; }
+  .brand h1 { margin: 0; font-size: 24px; line-height: 1.1; letter-spacing: -.3px; }
   .brand p { margin: 2px 0 0; color: var(--muted); }
   .cache { color: var(--muted); font-size: 13px; text-align: right; }
   .cache b { color: var(--ink-2); font-weight: 600; }
 
+  /* Вкладки поисков */
+  .tabs { display: flex; align-items: flex-end; gap: 4px; flex-wrap: wrap; margin-bottom: -1px; }
+  .tab {
+    display: flex; align-items: center; gap: 8px; border: 0; background: #dfe5ee; color: var(--ink-2);
+    padding: 9px 12px 9px 16px; border-radius: 10px 10px 0 0; cursor: pointer; max-width: 260px;
+  }
+  .tab:hover { background: #d5dce7; }
+  .tab.active { background: var(--card); color: var(--ink); font-weight: 600; box-shadow: 0 -1px 4px rgba(15, 27, 45, .05); }
+  .tab .tname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tab input { border: 1px solid var(--accent); border-radius: 6px; padding: 1px 6px; width: 160px; outline: 0; font-weight: 600; }
+  .tab .tclose { width: 20px; height: 20px; border-radius: 5px; display: grid; place-items: center; color: var(--muted); font-size: 16px; line-height: 1; }
+  .tab .tclose:hover { background: var(--field-hover); color: var(--bad); }
+  .tab .spin { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 1s infinite alternate; }
+  @keyframes pulse { from { opacity: .3; } to { opacity: 1; } }
+  .tab-add { border: 0; background: transparent; color: var(--accent); padding: 9px 12px; cursor: pointer; font-weight: 600; }
+  .tab-add:hover { text-decoration: underline; }
+  .tab-panel { background: var(--card); border-radius: 0 var(--radius) var(--radius) var(--radius); box-shadow: var(--shadow); padding: 16px; }
+  .tab-hint { color: var(--muted); font-size: 12px; margin: 10px 2px 0; }
+
   /* Строка поиска как на сайте */
   .bar {
     display: grid; grid-template-columns: minmax(260px, 1.5fr) 1fr 1fr auto;
-    background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow);
-    min-height: 60px; position: relative; z-index: 5;
+    background: var(--field); border-radius: var(--radius); min-height: 58px; position: relative; z-index: 5;
   }
   .bar > * + * { border-left: 1px solid var(--line); }
   .bar-q { display: flex; align-items: center; gap: 10px; padding: 0 18px; }
   .bar-q svg { flex: none; color: var(--accent); }
-  .bar-q input { border: 0; outline: 0; width: 100%; background: transparent; font-size: 15px; padding: 18px 0; }
+  .bar-q input { border: 0; outline: 0; width: 100%; background: transparent; font-size: 15px; padding: 17px 0; }
   .bar-q input::placeholder { color: var(--muted); }
   .btn-find {
     border: 0; border-radius: 0 var(--radius) var(--radius) 0; background: var(--accent); color: #fff;
     font-size: 16px; font-weight: 600; padding: 0 36px; cursor: pointer; min-width: 150px;
   }
   .btn-find:hover { background: var(--accent-hover); }
-  .btn-find:disabled { background: #8aa9e0; cursor: default; }
 
   /* Мультиселект */
   .ms { position: relative; }
@@ -77,10 +95,7 @@
   }
   .ms-val { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 15px; }
   .ms-val.empty { color: var(--muted); }
-  .ms-count {
-    background: var(--accent); color: #fff; border-radius: 10px; font-size: 12px; font-weight: 600;
-    padding: 0 7px; line-height: 20px;
-  }
+  .ms-count { background: var(--accent); color: #fff; border-radius: 10px; font-size: 12px; font-weight: 600; padding: 0 7px; line-height: 20px; }
   .ms-btn svg { flex: none; color: var(--muted); transition: transform .15s; }
   .ms.open .ms-btn svg { transform: rotate(180deg); }
   .ms-panel {
@@ -99,15 +114,18 @@
   input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--accent); margin: 0; flex: none; }
 
   /* Панели фильтров */
-  .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 14px; }
   .card { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); padding: 20px 22px; }
+  .tab-panel .card { box-shadow: none; border: 1px solid var(--line); }
   .card h2 { margin: 0 0 14px; font-size: 16px; font-weight: 650; display: flex; align-items: center; gap: 8px; }
-  .card.key { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .card.key { border-color: var(--accent) !important; outline: 1px solid var(--accent); outline-offset: -1px; }
+  .card.wide { grid-column: 1 / -1; }
   .tag { font-size: 11px; font-weight: 600; background: var(--accent-soft); color: var(--accent); border-radius: 6px; padding: 2px 7px; }
-  .row { display: grid; grid-template-columns: 170px 1fr; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .row { display: grid; grid-template-columns: 180px 1fr; align-items: center; gap: 10px; margin-bottom: 12px; }
   .row:last-child { margin-bottom: 0; }
   .row > .rl { color: var(--muted); }
   .row .hint { display: block; font-size: 12px; color: var(--muted); opacity: .85; }
+  .sep { border-top: 1px dashed var(--line); margin: 14px 0; }
   .range { display: grid; grid-template-columns: auto 1fr auto 1fr; align-items: center; gap: 8px; }
   .range > span { color: var(--muted); }
   .field {
@@ -116,13 +134,13 @@
   }
   .field:hover { background: var(--field-hover); }
   .field:focus { border-color: var(--accent); background: #fff; }
+  input[type=date].field { padding: 7px 10px; }
   .unit { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; }
   .unit > span { color: var(--muted); }
   select.field { cursor: pointer; }
+  .cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; }
   .chips { display: flex; flex-wrap: wrap; gap: 8px; }
-  .chip {
-    border: 1px solid var(--line); background: #fff; border-radius: 20px; padding: 6px 14px; cursor: pointer;
-  }
+  .chip { border: 1px solid var(--line); background: #fff; border-radius: 20px; padding: 6px 14px; cursor: pointer; }
   .chip[aria-pressed=true] { background: var(--accent); border-color: var(--accent); color: #fff; }
   .ms.boxed { background: var(--field); border-radius: 8px; }
   .ms.boxed .ms-btn { min-height: 38px; padding: 0 12px; }
@@ -134,38 +152,51 @@
 
   /* Кнопки */
   .btn {
-    border: 0; border-radius: 9px; padding: 10px 18px; cursor: pointer; font-weight: 600;
+    border: 0; border-radius: 9px; padding: 8px 14px; cursor: pointer; font-weight: 600;
     background: var(--accent); color: #fff; white-space: nowrap;
   }
   .btn:hover { background: var(--accent-hover); }
   .btn.ghost { background: var(--field); color: var(--ink); }
   .btn.ghost:hover { background: var(--field-hover); }
   .btn.danger { background: var(--bad-soft); color: var(--bad); }
+  .btn.danger:hover { background: #f9d6d2; }
+  .btn.small { padding: 6px 11px; font-size: 13px; }
 
-  /* Прогресс */
-  .progress { margin-top: 16px; }
-  .prog-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-  .prog-title { font-weight: 650; font-size: 16px; }
-  .prog-text { color: var(--muted); margin-top: 2px; }
-  .track { height: 8px; background: var(--field); border-radius: 4px; overflow: hidden; margin-top: 14px; }
-  .fill { height: 100%; width: 0; background: var(--accent); border-radius: 4px; transition: width .4s; }
-  .fill.indet { width: 30%; animation: indet 1.2s infinite ease-in-out; }
-  @keyframes indet { 0% { margin-left: -30%; } 100% { margin-left: 100%; } }
-  .steps { display: flex; gap: 24px; margin: 12px 0 0; padding: 0; list-style: none; color: var(--muted); font-size: 13px; }
-  .steps li::before { content: "○ "; }
-  .steps li.cur { color: var(--accent); font-weight: 600; }
-  .steps li.cur::before { content: "● "; }
-  .steps li.ok { color: var(--good); }
-  .steps li.ok::before { content: "✓ "; }
-
-  .msg { margin-top: 16px; padding: 14px 18px; border-radius: var(--radius); }
+  .msg { margin-top: 14px; padding: 13px 18px; border-radius: var(--radius); }
   .msg.err { background: var(--bad-soft); color: var(--bad); }
   .msg.info { background: var(--warn-soft); color: #5f4b00; }
 
+  /* Процессы */
+  .section { margin-top: 16px; }
+  .sec-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+  .sec-head h2 { margin: 0; }
+  .procs { display: flex; flex-direction: column; gap: 8px; }
+  .proc {
+    display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: center;
+    border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; cursor: pointer;
+  }
+  .proc:hover { border-color: #c9d3e1; }
+  .proc.sel { border-color: var(--accent); background: #fafcff; }
+  .p-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .p-title b { font-weight: 650; }
+  .p-when { color: var(--muted); font-size: 13px; }
+  .p-text { color: var(--ink-2); font-size: 13px; margin-top: 3px; }
+  .p-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .st { font-size: 12px; font-weight: 700; border-radius: 6px; padding: 1px 8px; }
+  .st.running { background: var(--accent-soft); color: var(--accent); }
+  .st.stopped { background: var(--warn-soft); color: var(--warn); }
+  .st.done { background: var(--good-soft); color: var(--good); }
+  .st.error { background: var(--bad-soft); color: var(--bad); }
+  .track { height: 6px; background: var(--field); border-radius: 3px; overflow: hidden; margin-top: 8px; }
+  .fill { height: 100%; width: 0; background: var(--accent); border-radius: 3px; transition: width .4s; }
+  .fill.indet { width: 30%; animation: indet 1.2s infinite ease-in-out; }
+  @keyframes indet { 0% { margin-left: -30%; } 100% { margin-left: 100%; } }
+  .empty-procs { color: var(--muted); padding: 6px 2px; }
+
   /* Результаты */
-  .results { margin-top: 16px; padding: 0; overflow: hidden; }
-  .res-head { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; padding: 18px 22px; border-bottom: 1px solid var(--line); }
-  .res-head h2 { margin: 0; font-size: 20px; }
+  .results { padding: 0; overflow: hidden; }
+  .res-head { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; padding: 16px 22px; border-bottom: 1px solid var(--line); }
+  .res-head h2 { margin: 0; font-size: 18px; }
   .stats { display: flex; flex-wrap: wrap; gap: 8px; flex: 1; }
   .stat { background: var(--field); border-radius: 7px; padding: 3px 10px; font-size: 13px; color: var(--ink-2); }
   .stat b { font-weight: 650; }
@@ -177,11 +208,13 @@
     position: sticky; top: 0; background: #f7f9fc; text-align: left; font-weight: 600; color: var(--muted);
     padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; z-index: 1;
   }
+  th.win, td.win { background: #fffaeb; }
   td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
   tr.new td { background: var(--new-soft); }
+  tr.new td.win { background: #f6f6e6; }
   td.num, th.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
   td .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
-  td.title { min-width: 280px; max-width: 460px; }
+  td.title { min-width: 260px; max-width: 440px; }
   td a { color: var(--accent); text-decoration: none; font-weight: 600; white-space: nowrap; }
   td a:hover { text-decoration: underline; }
   .disc { display: inline-block; background: var(--good-soft); color: var(--good); font-weight: 700; border-radius: 6px; padding: 1px 7px; }
@@ -189,24 +222,16 @@
   .badge.new { background: var(--good); color: #fff; }
   .badge.down { background: #f9ab00; color: #fff; }
   .res-note { padding: 12px 22px; color: var(--muted); font-size: 13px; margin: 0; }
-  .empty-res { padding: 30px 22px; color: var(--ink-2); }
 
-  /* История */
-  .history { margin-top: 16px; }
-  .files { list-style: none; margin: 0; padding: 0; }
-  .files li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0; border-top: 1px solid var(--line); }
-  .files li:first-child { border-top: 0; }
-  .files .fname { font-weight: 600; }
-  .files .fmeta { color: var(--muted); font-size: 12.5px; }
-  .muted { color: var(--muted); }
-
-  @media (max-width: 980px) {
+  @media (max-width: 1000px) {
     .bar { grid-template-columns: 1fr 1fr; }
     .bar-q { grid-column: 1 / -1; border-bottom: 1px solid var(--line); }
     .bar > .ms:nth-child(2) { border-left: 0; }
     .btn-find { grid-column: 1 / -1; border-radius: 0 0 var(--radius) var(--radius); min-height: 50px; }
     .bar > .btn-find { border-left: 0; }
-    .grid { grid-template-columns: 1fr; }
+    .grid, .cols2 { grid-template-columns: 1fr; }
+    .proc { grid-template-columns: 1fr; }
+    .p-actions { justify-content: flex-start; }
   }
   @media (max-width: 560px) {
     .wrap { padding: 16px; }
@@ -223,142 +248,148 @@
       <div class="logo">KFC</div>
       <div>
         <h1>Поиск лотов МЭТС</h1>
-        <p>Выбираешь фильтры — жмёшь «Найти» — получаешь Excel со всеми данными по лотам</p>
+        <p>Фильтры → «Найти» → Excel со всеми данными по лотам</p>
       </div>
     </div>
     <div class="cache" id="cacheInfo"></div>
   </header>
 
-  <!-- Строка поиска -->
-  <div class="bar">
-    <label class="bar-q">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-      <input id="keywords" placeholder="Предмет, собственник, номер торгов…" autocomplete="off">
-    </label>
-    <div id="msCategories"></div>
-    <div id="msRegions"></div>
-    <button class="btn-find" id="btnFind">Найти</button>
-  </div>
-
-  <div class="grid">
-    <!-- Цена -->
-    <section class="card">
-      <h2>Цена, ₽</h2>
-      <div class="row"><span class="rl">Начальная цена</span>
-        <div class="range"><span>от</span><input class="field num" data-k="search.start_price_from"><span>до</span><input class="field num" data-k="search.start_price_to"></div></div>
-      <div class="row"><span class="rl">Текущая цена</span>
-        <div class="range"><span>от</span><input class="field num" data-k="search.price_now_from"><span>до</span><input class="field num" data-k="search.price_now_to"></div></div>
-      <div class="row"><span class="rl">Минимальная цена</span>
-        <div class="range"><span>от</span><input class="field num" data-k="search.min_price_from"><span>до</span><input class="field num" data-k="search.min_price_to"></div></div>
-      <div class="row"><span class="rl">Процент снижения<span class="hint">на сколько может упасть по графику, %</span></span>
-        <div class="range"><span>от</span><input class="field pct" data-k="search.max_drop_pct_from"><span>до</span><input class="field pct" data-k="search.max_drop_pct_to"></div></div>
-    </section>
-
-    <!-- Отбор по разнице -->
-    <section class="card key">
-      <h2>Отбор по разнице <span class="tag">главное</span></h2>
-      <div class="row"><span class="rl">Цена уже снизилась<span class="hint">от начальной</span></span>
-        <div class="unit"><span>от</span><input class="field pct" data-k="filter.min_discount_now_pct"><span>%</span></div></div>
-      <div class="row"><span class="rl">Разница в рублях<span class="hint">начальная − текущая</span></span>
-        <div class="unit"><span>от</span><input class="field num" data-k="filter.min_difference_rub"><span>₽</span></div></div>
-      <div class="row"><span class="rl">Цена за м²<span class="hint">недвижимость и земля</span></span>
-        <div class="unit"><span>до</span><input class="field num" data-k="filter.max_price_per_m2"><span>₽</span></div></div>
-      <div class="row"><span class="rl">Приём заявок ещё</span>
-        <div class="unit"><span>от</span><input class="field num" data-k="filter.min_days_left"><span>дн.</span></div></div>
-      <p class="note">На публичном предложении цена падает по графику каждые несколько дней. Приложение открывает каждый лот,
-        берёт начальную цену и график и считает, насколько лот уже подешевел. Пустое поле — без ограничения.</p>
-    </section>
-
-    <!-- Торги -->
-    <section class="card">
-      <h2>Торги</h2>
-      <div class="row"><span class="rl">Форма торгов</span>
-        <div class="chips" data-chips="search.trade_forms">
-          <button type="button" class="chip" data-v="публичное предложение">Публичное предложение</button>
-          <button type="button" class="chip" data-v="аукцион">Аукцион</button>
-        </div></div>
-      <div class="row"><span class="rl">Вид торгов</span>
-        <div class="chips" data-chips="search.trade_kinds">
-          <button type="button" class="chip" data-v="банкротство">Банкротство</button>
-          <button type="button" class="chip" data-v="коммерческие">Коммерческие</button>
-        </div></div>
-      <div class="row"><span class="rl">Состояние торгов</span><div id="msStatuses"></div></div>
-      <div class="row"><span class="rl">Исключить слова<span class="hint">через запятую</span></span>
-        <input class="field" id="exclude" placeholder="доля, дебиторская задолженность"></div>
-    </section>
-
-    <!-- Выгрузка -->
-    <section class="card">
-      <h2>Выгрузка</h2>
-      <div class="row"><span class="rl">Сортировка</span>
-        <select class="field" id="sortBy">
-          <option value="discount_now">Сильнее всего подешевели</option>
-          <option value="difference">Больше всего разница в ₽</option>
-          <option value="price_now">Сначала дешёвые</option>
-          <option value="price_per_m2">Дешевле за м²</option>
-          <option value="deadline">Сначала срочные</option>
-        </select></div>
-      <div class="row"><span class="rl">Сколько смотреть</span>
-        <select class="field" id="maxPages">
-          <option value="0">Все лоты</option>
-          <option value="1">Первые 20 (проверка)</option>
-          <option value="5">Первые 100</option>
-          <option value="10">Первые 200</option>
-          <option value="25">Первые 500</option>
-          <option value="50">Первые 1000</option>
-        </select></div>
-      <label class="check"><input type="checkbox" id="onlyNew"> Только новые и подешевевшие с прошлого поиска</label>
-      <label class="check"><input type="checkbox" id="fresh"> Перепроверить все лоты заново (дольше)</label>
-      <p class="note">Сайт показывает свежие лоты первыми, а подешевевшие обычно дальше — поэтому лучше смотреть все.
-        Первый раз лоты открываются долго, потом берутся из памяти приложения. <button class="link" id="btnReset">Сбросить фильтры</button></p>
-    </section>
-  </div>
-
-  <!-- Прогресс -->
-  <section class="card progress" id="progress" hidden>
-    <div class="prog-head">
-      <div>
-        <div class="prog-title" id="progTitle">Идёт поиск</div>
-        <div class="prog-text" id="progText"></div>
-      </div>
-      <button class="btn danger" id="btnStop">Остановить</button>
+  <!-- Вкладки: у каждой свой набор фильтров -->
+  <nav class="tabs" id="tabs"></nav>
+  <div class="tab-panel">
+    <div class="bar">
+      <label class="bar-q">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="keywords" placeholder="Предмет, собственник, номер торгов…" autocomplete="off">
+      </label>
+      <div id="msCategories"></div>
+      <div id="msRegions"></div>
+      <button class="btn-find" id="btnFind">Найти</button>
     </div>
-    <div class="track"><div class="fill" id="progFill"></div></div>
-    <ol class="steps" id="steps">
-      <li data-s="search">Поиск на сайте</li>
-      <li data-s="lots">Открываю лоты</li>
-      <li data-s="excel">Сохраняю Excel</li>
-    </ol>
-  </section>
+
+    <div class="grid">
+      <section class="card">
+        <h2>Цена, ₽</h2>
+        <div class="row"><span class="rl">Начальная цена</span>
+          <div class="range"><span>от</span><input class="field num" data-k="search.start_price_from"><span>до</span><input class="field num" data-k="search.start_price_to"></div></div>
+        <div class="row"><span class="rl">Текущая цена</span>
+          <div class="range"><span>от</span><input class="field num" data-k="search.price_now_from"><span>до</span><input class="field num" data-k="search.price_now_to"></div></div>
+        <div class="row"><span class="rl">Минимальная цена</span>
+          <div class="range"><span>от</span><input class="field num" data-k="search.min_price_from"><span>до</span><input class="field num" data-k="search.min_price_to"></div></div>
+        <div class="row"><span class="rl">Процент снижения<span class="hint">на сколько может упасть по графику, %</span></span>
+          <div class="range"><span>от</span><input class="field pct" data-k="search.max_drop_pct_from"><span>до</span><input class="field pct" data-k="search.max_drop_pct_to"></div></div>
+      </section>
+
+      <section class="card key">
+        <h2>Отбор по разнице <span class="tag">главное</span></h2>
+        <div class="row"><span class="rl">Цена уже снизилась<span class="hint">от начальной</span></span>
+          <div class="unit"><span>от</span><input class="field pct" data-k="filter.min_discount_now_pct"><span>%</span></div></div>
+        <div class="row"><span class="rl">Разница в рублях<span class="hint">начальная − текущая</span></span>
+          <div class="unit"><span>от</span><input class="field num" data-k="filter.min_difference_rub"><span>₽</span></div></div>
+        <div class="row"><span class="rl">Цена за м²<span class="hint">недвижимость и земля</span></span>
+          <div class="unit"><span>до</span><input class="field num" data-k="filter.max_price_per_m2"><span>₽</span></div></div>
+        <div class="row"><span class="rl">Приём заявок ещё</span>
+          <div class="unit"><span>от</span><input class="field num" data-k="filter.min_days_left"><span>дн.</span></div></div>
+        <p class="note">На публичном предложении цена падает по графику. Приложение открывает каждый лот, берёт начальную цену
+          и график и считает, насколько лот подешевел. Пустое поле — без ограничения.</p>
+      </section>
+
+      <section class="card">
+        <h2>Даты</h2>
+        <div class="row"><span class="rl">Начало приёма заявок<span class="hint">когда стартует 1-й период</span></span>
+          <div class="range"><span>с</span><input type="date" class="field date" data-k="search.apps_start_from"><span>по</span><input type="date" class="field date" data-k="search.apps_start_to"></div></div>
+        <div class="row"><span class="rl">Конец приёма заявок</span>
+          <div class="range"><span>с</span><input type="date" class="field date" data-k="search.apps_end_from"><span>по</span><input type="date" class="field date" data-k="search.apps_end_to"></div></div>
+        <div class="sep"></div>
+        <div class="row"><span class="rl">Цена в период<span class="hint">мин. цена по графику между датами</span></span>
+          <div class="range"><span>с</span><input type="date" class="field date" data-k="filter.window_from"><span>по</span><input type="date" class="field date" data-k="filter.window_to"></div></div>
+        <div class="row"><span class="rl">Снижение в этот период</span>
+          <div class="unit"><span>от</span><input class="field pct" data-k="filter.min_window_discount_pct"><span>%</span></div></div>
+        <div class="row"><span class="rl">Мин. цена в этот период</span>
+          <div class="unit"><span>до</span><input class="field num" data-k="filter.max_window_price"><span>₽</span></div></div>
+        <p class="note">Например, «Цена в период: с 1 по 15 октября» покажет, до какой цены лот упадёт в эти даты и с какого
+          числа. Лоты, которые в этот период не торгуются, не попадут в результат.</p>
+      </section>
+
+      <section class="card">
+        <h2>Торги</h2>
+        <div class="row"><span class="rl">Форма торгов</span>
+          <div class="chips" data-chips="search.trade_forms">
+            <button type="button" class="chip" data-v="публичное предложение">Публичное предложение</button>
+            <button type="button" class="chip" data-v="аукцион">Аукцион</button>
+          </div></div>
+        <div class="row"><span class="rl">Вид торгов</span>
+          <div class="chips" data-chips="search.trade_kinds">
+            <button type="button" class="chip" data-v="банкротство">Банкротство</button>
+            <button type="button" class="chip" data-v="коммерческие">Коммерческие</button>
+          </div></div>
+        <div class="row"><span class="rl">Состояние торгов</span><div id="msStatuses"></div></div>
+        <div class="row"><span class="rl">Исключить слова<span class="hint">через запятую</span></span>
+          <input class="field" id="exclude" placeholder="доля, дебиторская задолженность"></div>
+      </section>
+
+      <section class="card wide">
+        <h2>Сколько искать</h2>
+        <div class="cols2">
+          <div>
+            <div class="row"><span class="rl">Просмотреть лотов<span class="hint">пусто — все</span></span>
+              <div class="unit"><span>до</span><input class="field num" data-k="run.max_lots" placeholder="все"><span>шт.</span></div></div>
+            <div class="row"><span class="rl">Найти подходящих<span class="hint">поиск остановится, когда наберётся</span></span>
+              <div class="unit"><span>до</span><input class="field num" data-k="run.stop_after_found" placeholder="сколько найдётся"><span>шт.</span></div></div>
+            <div class="row"><span class="rl">Какие смотреть первыми</span>
+              <select class="field" id="siteSort">
+                <option value="new">Новые на сайте</option>
+                <option value="ending">Скоро конец приёма заявок</option>
+                <option value="cheap">Дешевле</option>
+                <option value="expensive">Дороже</option>
+              </select></div>
+          </div>
+          <div>
+            <div class="row"><span class="rl">Сортировка результата</span>
+              <select class="field" id="sortBy">
+                <option value="discount_now">Сильнее всего подешевели</option>
+                <option value="difference">Больше всего разница в ₽</option>
+                <option value="window_min">Дешевле в выбранный период</option>
+                <option value="price_now">Сначала дешёвые</option>
+                <option value="price_per_m2">Дешевле за м²</option>
+                <option value="trade_start">Раньше начинаются торги</option>
+                <option value="deadline">Сначала срочные</option>
+              </select></div>
+            <label class="check"><input type="checkbox" id="onlyNew"> Только новые и подешевевшие с прошлого поиска</label>
+            <label class="check"><input type="checkbox" id="fresh"> Перепроверить лоты заново, не из памяти (дольше)</label>
+            <p class="note"><button class="link" id="btnReset">Сбросить фильтры этой вкладки</button></p>
+          </div>
+        </div>
+      </section>
+    </div>
+    <p class="tab-hint">Фильтры сохраняются во вкладке сами. Двойной клик по названию вкладки — переименовать.</p>
+  </div>
 
   <div class="msg" id="msg" hidden></div>
 
-  <!-- Результаты -->
-  <section class="card results" id="results" hidden>
+  <!-- Процессы поиска -->
+  <section class="card section">
+    <div class="sec-head">
+      <h2>Процессы поиска</h2>
+      <button class="btn ghost small" id="btnFolder">Папка с Excel</button>
+    </div>
+    <div class="procs" id="procs"></div>
+  </section>
+
+  <!-- Результаты выбранного процесса -->
+  <section class="card section results" id="results" hidden>
     <div class="res-head">
       <h2 id="resTitle"></h2>
       <div class="stats" id="resStats"></div>
-      <div class="res-actions">
-        <button class="btn" id="btnOpenExcel">Открыть Excel</button>
-        <button class="btn ghost" id="btnOpenFolder">Папка</button>
-      </div>
+      <div class="res-actions" id="resActions"></div>
     </div>
     <div class="table-wrap" id="resTableWrap">
       <table>
-        <thead><tr>
-          <th>Лот</th><th>Название</th><th>Регион</th><th class="num">Начальная</th><th class="num">Сейчас</th>
-          <th class="num">Разница</th><th class="num">Снижение</th><th class="num">Минимум</th><th>Заявки до</th>
-        </tr></thead>
+        <thead id="resHead"></thead>
         <tbody id="resBody"></tbody>
       </table>
     </div>
     <p class="res-note" id="resNote"></p>
-  </section>
-
-  <!-- История -->
-  <section class="card history" id="history" hidden>
-    <h2>Прошлые выгрузки</h2>
-    <ul class="files" id="files"></ul>
   </section>
 </div>
 
@@ -368,6 +399,7 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 const money = n => (n === null || n === undefined || n === "") ? "—" : Math.round(n).toLocaleString("ru-RU");
 const pct = x => (x === null || x === undefined) ? "—" : `−${Math.round(x * 100)}%`;
+const int = n => Number(n || 0).toLocaleString("ru-RU");
 
 async function api(path, body) {
   const opts = body === undefined ? {} : {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)};
@@ -395,7 +427,7 @@ function MultiSelect(root, {placeholder, groups, searchable, boxed, onChange}) {
         </div>`).join("")}
         <div class="ms-empty" hidden>Ничего не найдено</div>
       </div>
-      <div class="ms-foot"><button type="button" class="link ms-clear">Сбросить</button><button type="button" class="btn ms-done">Готово</button></div>
+      <div class="ms-foot"><button type="button" class="link ms-clear">Сбросить</button><button type="button" class="btn small ms-done">Готово</button></div>
     </div>`;
   const btn = $(".ms-btn", root), panel = $(".ms-panel", root), val = $(".ms-val", root), search = $(".ms-search", root);
 
@@ -405,8 +437,8 @@ function MultiSelect(root, {placeholder, groups, searchable, boxed, onChange}) {
     val.textContent = list.length === 0 ? placeholder : list[0];
     $(".ms-count", root)?.remove();
     if (list.length > 1) val.insertAdjacentHTML("afterend", `<span class="ms-count">+${list.length - 1}</span>`);
-    $$('.ms-opt input', root).forEach(cb => cb.checked = selected.has(cb.value));
-    $$('input[data-group]', root).forEach(cb => {
+    $$(".ms-opt input", root).forEach(cb => cb.checked = selected.has(cb.value));
+    $$("input[data-group]", root).forEach(cb => {
       const items = groups[cb.dataset.group][1];
       const n = items.filter(x => selected.has(x)).length;
       cb.checked = n === items.length;
@@ -450,22 +482,20 @@ function MultiSelect(root, {placeholder, groups, searchable, boxed, onChange}) {
 document.addEventListener("click", () => openPanels.forEach(fn => fn()));
 document.addEventListener("keydown", e => { if (e.key === "Escape") openPanels.forEach(fn => fn()); });
 
-/* Настройки: чтение и запись полей формы */
-const DEFAULTS = {
-  search: {keywords: "", exclude_words: ["доля", "дебиторская задолженность", "право требования"], regions: [], categories: [],
-           statuses: ["Объявленные торги", "Прием заявок"], trade_forms: ["публичное предложение"], trade_kinds: ["банкротство"],
-           price_now_from: 0, price_now_to: 0, start_price_from: 0, start_price_to: 0, min_price_from: 0, min_price_to: 0,
-           max_drop_pct_from: 0, max_drop_pct_to: 0},
-  filter: {min_discount_now_pct: 30, min_difference_rub: 0, min_days_left: 0, max_price_per_m2: 0},
-  run: {max_pages: 0, sort_by: "discount_now", only_new: false},
-};
-let base = structuredClone(DEFAULTS);
-let msCat, msReg, msStat, lastFile = null;
+/* ---------- Форма фильтров ---------- */
+let OPT, STATE = {searches: [], runs: []}, activeId = null, base = {};
+let msCat, msReg, msStat;
 
 const getPath = (o, p) => p.split(".").reduce((a, k) => a?.[k], o);
 function setPath(o, p, v) { const ks = p.split("."); const last = ks.pop(); ks.reduce((a, k) => a[k] ??= {}, o)[last] = v; }
 const digits = s => Number(String(s).replace(/\D/g, "")) || 0;
+function toIsoDate(v) {  // "01.10.2026" или "2026-10-01" -> "2026-10-01"
+  if (!v) return "";
+  const m = String(v).match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : String(v);
+}
 function fmtField(el) {
+  if (el.classList.contains("date")) return;
   const n = digits(el.value);
   if (el.classList.contains("pct")) el.value = n ? String(Math.min(n, 100)) : "";
   else el.value = n ? n.toLocaleString("ru-RU") : "";
@@ -479,11 +509,16 @@ function collect() {
   s.search.regions = msReg.value();
   s.search.statuses = msStat.value();
   s.search.exclude_words = $("#exclude").value.split(",").map(x => x.trim()).filter(Boolean);
-  $$("[data-k]").forEach(el => setPath(s, el.dataset.k, el.classList.contains("pct") ? Math.min(digits(el.value), 100) : digits(el.value)));
+  $$("[data-k]").forEach(el => {
+    const v = el.classList.contains("date") ? el.value
+      : el.classList.contains("pct") ? Math.min(digits(el.value), 100) : digits(el.value);
+    setPath(s, el.dataset.k, v);
+  });
   $$("[data-chips]").forEach(box => setPath(s, box.dataset.chips, $$(".chip[aria-pressed=true]", box).map(c => c.dataset.v)));
+  s.search.site_sort = $("#siteSort").value;
   s.run.sort_by = $("#sortBy").value;
-  s.run.max_pages = Number($("#maxPages").value);
   s.run.only_new = $("#onlyNew").checked;
+  delete s.run.max_pages;
   return s;
 }
 
@@ -492,147 +527,276 @@ function apply(s) {
   $("#keywords").value = s.search?.keywords || "";
   msCat.set(s.search?.categories); msReg.set(s.search?.regions); msStat.set(s.search?.statuses);
   $("#exclude").value = (s.search?.exclude_words || []).join(", ");
-  $$("[data-k]").forEach(el => { const v = getPath(s, el.dataset.k); el.value = v || ""; fmtField(el); });
+  $$("[data-k]").forEach(el => {
+    const v = getPath(s, el.dataset.k);
+    if (el.classList.contains("date")) { el.value = toIsoDate(v); return; }
+    el.value = v || ""; fmtField(el);
+  });
   $$("[data-chips]").forEach(box => {
     const vals = (getPath(s, box.dataset.chips) || []).map(x => x.toLowerCase());
     $$(".chip", box).forEach(c => c.setAttribute("aria-pressed", vals.some(v => v.includes(c.dataset.v.slice(0, 5)))));
   });
+  $("#siteSort").value = s.search?.site_sort || "new";
   $("#sortBy").value = s.run?.sort_by || "discount_now";
-  const mp = String(s.run?.max_pages ?? 0);
-  $("#maxPages").value = $$("#maxPages option").some(o => o.value === mp) ? mp : "0";
   $("#onlyNew").checked = !!s.run?.only_new;
 }
 
 let saveTimer;
-function saveSoon() { clearTimeout(saveTimer); saveTimer = setTimeout(() => api("/api/settings", {settings: collect()}), 600); }
-
-/* Поиск и прогресс */
-let polling = null;
-const STAGES = ["search", "lots", "excel"];
-const STAGE_TITLES = {search: "Ищу лоты на сайте", lots: "Открываю лоты и считаю разницу", excel: "Сохраняю Excel"};
+function saveNow() {
+  clearTimeout(saveTimer);
+  if (!activeId) return Promise.resolve();
+  return api("/api/search/save", {id: activeId, settings: collect()});
+}
+function saveSoon() { clearTimeout(saveTimer); saveTimer = setTimeout(saveNow, 500); }
 
 function showMsg(text, kind = "info") { const m = $("#msg"); m.className = `msg ${kind}`; m.textContent = text; m.hidden = !text; }
 
-function renderProgress(st) {
-  $("#progress").hidden = false;
-  $("#progTitle").textContent = STAGE_TITLES[st.stage] || "Идёт поиск";
-  $("#progText").textContent = st.text || "";
-  const fill = $("#progFill");
-  const determinate = st.total > 0;
-  fill.classList.toggle("indet", !determinate);
-  fill.style.width = determinate ? `${Math.max(2, st.done / st.total * 100)}%` : "";
-  const cur = STAGES.indexOf(st.stage);
-  $$("#steps li").forEach((li, i) => { li.className = i < cur ? "ok" : i === cur ? "cur" : ""; });
+/* ---------- Вкладки ---------- */
+function renderTabs() {
+  const running = new Set(STATE.runs.filter(r => r.status === "running").map(r => r.search_id));
+  $("#tabs").innerHTML = STATE.searches.map(s => `
+    <button type="button" class="tab ${s.id === activeId ? "active" : ""}" data-id="${s.id}" title="${esc(s.name)}">
+      ${running.has(s.id) ? '<span class="spin" title="Идёт поиск"></span>' : ""}
+      <span class="tname">${esc(s.name)}</span>
+      <span class="tclose" data-close="${s.id}" title="Удалить вкладку">×</span>
+    </button>`).join("") + `<button type="button" class="tab-add" id="tabAdd">+ Новый поиск</button>`;
 }
 
-function setRunning(on) {
-  const b = $("#btnFind");
-  b.disabled = on; b.textContent = on ? "Ищу…" : "Найти";
-  if (!on) $("#progress").hidden = true;
+async function switchTab(id) {
+  if (id === activeId) return;
+  await saveNow();
+  activeId = id;
+  api("/api/search/activate", {id});
+  const s = STATE.searches.find(x => x.id === id);
+  apply(s.settings);
+  renderTabs();
+  showMsg("");
 }
 
-function renderResults(st) {
-  const s = st.stats || {};
-  lastFile = st.file;
+function renameTab(tabEl) {
+  const id = tabEl.dataset.id;
+  const s = STATE.searches.find(x => x.id === id);
+  const name = $(".tname", tabEl);
+  const input = document.createElement("input");
+  input.value = s.name;
+  name.replaceWith(input);
+  input.focus(); input.select();
+  const done = async commit => {
+    if (commit && input.value.trim()) {
+      s.name = input.value.trim();
+      await api("/api/search/save", {id, name: s.name});
+    }
+    renderTabs();
+  };
+  input.addEventListener("keydown", e => { if (e.key === "Enter") done(true); if (e.key === "Escape") done(false); });
+  input.addEventListener("blur", () => done(true));
+  input.addEventListener("click", e => e.stopPropagation());
+}
+
+/* ---------- Процессы ---------- */
+let selectedRun = null;
+const ST_NAMES = {running: "Идёт", stopped: "Остановлен", done: "Готово", error: "Ошибка"};
+
+function procText(r) {
+  if (r.status === "running") return r.progress?.text || "";
+  if (r.status === "error") return r.error || "";
+  const s = r.stats || {};
+  if (s.found === undefined) return "";
+  let t = `Подошло ${int(s.found)} из ${int(s.viewed)} просмотренных`;
+  if (s.reason_text) t += ` · ${s.reason_text}`;
+  if (r.status === "stopped") t += " · можно продолжить или сохранить в Excel";
+  return t;
+}
+
+function procActions(r) {
+  const b = (act, text, cls = "ghost") => `<button class="btn small ${cls}" data-act="${act}" data-id="${r.id}">${text}</button>`;
+  if (r.status === "running") return b("stop", "Остановить") + b("finish", "Завершить → Excel", "");
+  const out = [];
+  if (r.status === "stopped") out.push(b("resume", "Продолжить"), b("save", "Сохранить в Excel", ""));
+  if (r.status === "error") out.push(b("resume", "Повторить"));
+  if (r.file) out.push(b("open", "Открыть Excel", ""));
+  out.push(b("delete", "Удалить", "danger"));
+  return out.join("");
+}
+
+function renderProcs() {
+  const runs = STATE.runs;
+  $("#procs").innerHTML = runs.length ? runs.map(r => {
+    const frac = r.progress?.fraction;
+    const bar = r.status === "running"
+      ? `<div class="track"><div class="fill ${frac == null ? "indet" : ""}" style="${frac != null ? `width:${Math.max(2, frac * 100)}%` : ""}"></div></div>` : "";
+    return `<div class="proc ${r.id === selectedRun ? "sel" : ""}" data-run="${r.id}">
+      <div>
+        <div class="p-title"><span class="st ${r.status}">${ST_NAMES[r.status] || r.status}</span><b>${esc(r.name)}</b>
+          <span class="p-when">${esc(r.started || "")}</span></div>
+        <div class="p-text">${esc(procText(r))}</div>${bar}
+      </div>
+      <div class="p-actions">${procActions(r)}</div>
+    </div>`;
+  }).join("") : `<div class="empty-procs">Пока пусто. Выбери фильтры и нажми «Найти» — здесь появится процесс поиска.</div>`;
+}
+
+async function runAction(act, id) {
+  const r = STATE.runs.find(x => x.id === id);
+  if (act === "stop") await api("/api/run/stop", {id});
+  if (act === "finish") await api("/api/run/stop", {id, save: true});
+  if (act === "resume") await api("/api/run/resume", {id});
+  if (act === "save") await api("/api/run/save", {id});
+  if (act === "open") {
+    const res = await api("/api/open", {file: r.file});
+    if (!res.ok) showMsg(res.error, "err");
+  }
+  if (act === "delete") {
+    if (!confirm(`Удалить процесс «${r.name}» от ${r.started}${r.file ? " и его Excel-файл" : ""}?`)) return;
+    await api("/api/run/delete", {id});
+    if (selectedRun === id) { selectedRun = null; $("#results").hidden = true; }
+  }
+  await refresh();
+}
+
+/* ---------- Результаты выбранного процесса ---------- */
+let rowsKey = null;
+
+async function showResults(force) {
+  const r = STATE.runs.find(x => x.id === selectedRun);
+  if (!r || r.status === "running") { $("#results").hidden = true; rowsKey = null; return; }
+  const key = `${r.id}|${r.status}|${r.finished}|${r.file}`;
+  if (key === rowsKey && !force) return;
+  rowsKey = key;
+  const data = await api(`/api/run/rows?id=${r.id}`);
+  const s = r.stats || {};
   $("#results").hidden = false;
-  $("#resTitle").textContent = `Найдено: ${(s.found ?? 0).toLocaleString("ru-RU")}`;
+  $("#resTitle").textContent = `${r.name} · найдено ${int(s.found)}`;
   const stats = [
-    ["В выдаче сайта", s.in_results], ["Исключено по словам", s.excluded],
+    ["Просмотрено", s.viewed], ["На сайте по фильтрам", s.total_on_site], ["Исключено словами", s.excluded],
     ["Новых", s.new, "good"], ["Подешевели", s.cheaper, "good"], ["Не открылись", s.errors],
-  ].filter(([, v]) => v).map(([t, v, cls]) => `<span class="stat ${cls || ""}">${t}: <b>${Number(v).toLocaleString("ru-RU")}</b></span>`);
-  if (s.minutes !== undefined) stats.push(`<span class="stat">за ${s.minutes < 1 ? Math.max(1, Math.round(s.minutes * 60)) + " сек" : s.minutes + " мин"}</span>`);
+  ].filter(([, v]) => v).map(([t, v, cls]) => `<span class="stat ${cls || ""}">${t}: <b>${int(v)}</b></span>`);
+  if (s.seconds !== undefined) stats.push(`<span class="stat">за ${s.seconds < 90 ? s.seconds + " сек" : Math.round(s.seconds / 60) + " мин"}</span>`);
   $("#resStats").innerHTML = stats.join("");
+  $("#resActions").innerHTML = r.file
+    ? `<button class="btn" data-act="open" data-id="${r.id}">Открыть Excel</button>`
+    : `<button class="btn" data-act="save" data-id="${r.id}">Сохранить в Excel</button>`;
 
-  const rows = st.rows || [];
-  if (!rows.length) {
+  const w = data.window;
+  $("#resHead").innerHTML = `<tr><th>Лот</th><th>Название</th><th>Регион</th><th>Начало торгов</th><th class="num">Начальная</th>
+    <th class="num">Сейчас</th><th class="num">Снижение</th>${w ? '<th class="num win">Мин. в период</th>' : ""}
+    <th class="num">Минимум</th><th>Заявки до</th><th class="num">Заявок</th></tr>`;
+  if (!data.rows.length) {
     $("#resTableWrap").hidden = true;
-    $("#resNote").innerHTML = `<span class="empty-res">Под фильтры ничего не подошло. Попробуй уменьшить «Цена уже снизилась» или выбрать больше регионов и категорий.
-      Excel всё равно сохранён.</span>`;
+    $("#resNote").textContent = "Под фильтры ничего не подошло. Попробуй уменьшить «Цена уже снизилась», расширить регионы и категории или снять лимиты.";
     return;
   }
   $("#resTableWrap").hidden = false;
-  $("#resBody").innerHTML = rows.map(r => {
-    const cheaper = r.prev_price && r.price_now && r.price_now < r.prev_price;
-    const badge = r.is_new ? '<span class="badge new">NEW</span>' : cheaper ? '<span class="badge down">↓</span>' : "";
-    return `<tr class="${r.is_new ? "new" : ""}">
-      <td><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.number)}</a>${badge}</td>
-      <td class="title">${esc(r.title)}<div class="sub">${esc([r.categories, r.form_short, r.status].filter(Boolean).join(" · "))}</div></td>
-      <td>${esc(r.region)}</td>
-      <td class="num">${money(r.start_price)}</td>
-      <td class="num"><b>${money(r.price_now)}</b>${r.price_per_m2 ? `<div class="sub">${money(r.price_per_m2)} ₽/м²</div>` : ""}</td>
-      <td class="num">${money(r.difference)}</td>
-      <td class="num">${r.discount_now ? `<span class="disc">${pct(r.discount_now)}</span>` : "—"}</td>
-      <td class="num">${money(r.price_min)}${r.discount_max ? `<div class="sub">до ${pct(r.discount_max)}</div>` : ""}</td>
-      <td>${esc(r.deadline || "—")}${r.period ? `<div class="sub">период ${esc(r.period)}</div>` : ""}</td>
+  $("#resBody").innerHTML = data.rows.map(x => {
+    const cheaper = x.prev_price && x.price_now && x.price_now < x.prev_price;
+    const badge = x.is_new ? '<span class="badge new">NEW</span>' : cheaper ? '<span class="badge down">↓</span>' : "";
+    const form = /публичн/i.test(x.trade_form || "") ? "Публичка" : /аукцион/i.test(x.trade_form || "") ? "Аукцион" : "";
+    return `<tr class="${x.is_new ? "new" : ""}">
+      <td><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.number)}</a>${badge}</td>
+      <td class="title">${esc(x.title)}<div class="sub">${esc([x.categories, form, x.status].filter(Boolean).join(" · "))}</div></td>
+      <td>${esc(x.region)}</td>
+      <td>${esc(x.trade_start || "—")}</td>
+      <td class="num">${money(x.start_price)}</td>
+      <td class="num"><b>${money(x.price_now)}</b>${x.price_per_m2 ? `<div class="sub">${money(x.price_per_m2)} ₽/м²</div>` : ""}</td>
+      <td class="num">${x.discount_now ? `<span class="disc">${pct(x.discount_now)}</span>` : "—"}</td>
+      ${w ? `<td class="num win"><b>${money(x.win_price_min)}</b><div class="sub">${x.win_min_date ? "с " + esc(x.win_min_date) : ""}${x.win_discount ? " · " + pct(x.win_discount) : ""}</div></td>` : ""}
+      <td class="num">${money(x.price_min)}${x.discount_max ? `<div class="sub">до ${pct(x.discount_max)}</div>` : ""}</td>
+      <td>${esc(x.deadline || "—")}${x.period ? `<div class="sub">период ${esc(x.period)}</div>` : ""}</td>
+      <td class="num">${x.bids ?? "—"}</td>
     </tr>`;
   }).join("");
-  $("#resNote").textContent = rows.length < (s.found || 0)
-    ? `Здесь первые ${rows.length} лотов. Все ${s.found.toLocaleString("ru-RU")} — в Excel, там же график цен и контакты.`
-    : "В Excel ещё больше данных: график снижения цены, кадастровые номера, должник, управляющий, контакты, описание.";
+  $("#resNote").textContent = data.rows.length < data.total
+    ? `Здесь первые ${data.rows.length}. Все ${int(data.total)} — в Excel, там же график цен, контакты и что искали.`
+    : "В Excel ещё: график снижения цены, кадастровые номера, должник, управляющий, контакты, описание и лист «Что искали».";
 }
 
-async function poll() {
-  const st = await api("/api/status");
-  if (st.status === "running") { setRunning(true); renderProgress(st); return; }
-  clearInterval(polling); polling = null;
-  setRunning(false);
-  if (st.status === "done") { showMsg(""); renderResults(st); loadFiles(); loadCacheInfo(); }
-  else if (st.status === "error") showMsg(st.text, "err");
-  else if (st.status === "cancelled") { showMsg(st.text, "info"); loadCacheInfo(); }
+/* ---------- Состояние с сервера ---------- */
+let pollTimer;
+async function refresh() {
+  const st = await api("/api/state");
+  const wasRunning = new Set(STATE.runs.filter(r => r.status === "running").map(r => r.id));
+  STATE = st;
+  $("#cacheInfo").innerHTML = st.cache_size
+    ? `В памяти: <b>${int(st.cache_size)}</b> лотов<br>их повторная проверка — мгновенно` : "Первый поиск откроет все лоты — это займёт время";
+  renderTabs();
+  // Процесс закончился — сразу показываем его результат
+  for (const r of st.runs) if (wasRunning.has(r.id) && r.status !== "running" && r.id === selectedRun) rowsKey = null;
+  if (!selectedRun || !st.runs.some(r => r.id === selectedRun)) {
+    const firstDone = st.runs.find(r => r.status !== "running");
+    selectedRun = firstDone ? firstDone.id : null;
+  }
+  renderProcs();
+  await showResults();
+  clearTimeout(pollTimer);
+  pollTimer = setTimeout(refresh, st.runs.some(r => r.status === "running") ? 1000 : 5000);
 }
-function startPolling() { if (!polling) { polling = setInterval(poll, 800); poll(); } }
 
 async function find() {
   openPanels.forEach(fn => fn());
   showMsg("");
-  const settings = collect();
-  const r = await api("/api/search", {settings, fresh: $("#fresh").checked});
+  clearTimeout(saveTimer);
+  const r = await api("/api/run/start", {search_id: activeId, settings: collect(), fresh: $("#fresh").checked});
   if (!r.ok) { showMsg(r.error, "err"); return; }
   $("#fresh").checked = false;
-  $("#results").hidden = true;
-  setRunning(true);
-  renderProgress({stage: "search", text: "Запускаю поиск…"});
-  startPolling();
-}
-
-async function loadFiles() {
-  const files = await api("/api/files");
-  $("#history").hidden = !files.length;
-  $("#files").innerHTML = files.map(f => `<li>
-      <div><div class="fname">${esc(f.name)}</div><div class="fmeta">${esc(f.date)} · ${f.size_kb} КБ</div></div>
-      <button class="btn ghost" data-open="${esc(f.name)}">Открыть</button></li>`).join("");
-}
-async function loadCacheInfo() {
-  const o = await api("/api/options");
-  $("#cacheInfo").innerHTML = o.cache_size ? `В памяти приложения: <b>${o.cache_size.toLocaleString("ru-RU")}</b> лотов<br>повторный поиск по ним — быстро` : "Первый поиск откроет все лоты — это займёт время";
+  selectedRun = r.id;
+  await refresh();
+  $("#procs").scrollIntoView({behavior: "smooth", block: "center"});
 }
 
 async function init() {
-  const o = await api("/api/options");
-  msCat = MultiSelect($("#msCategories"), {placeholder: "Категория", groups: o.category_groups, searchable: true, onChange: saveSoon});
-  msReg = MultiSelect($("#msRegions"), {placeholder: "Регион", groups: [[null, o.regions]], searchable: true, onChange: saveSoon});
-  msStat = MultiSelect($("#msStatuses"), {placeholder: "Любое", groups: [[null, o.statuses]], boxed: true, onChange: saveSoon});
-  apply(o.settings);
-  loadCacheInfo();
-  loadFiles();
+  OPT = await api("/api/options");
+  msCat = MultiSelect($("#msCategories"), {placeholder: "Категория", groups: OPT.category_groups, searchable: true, onChange: saveSoon});
+  msReg = MultiSelect($("#msRegions"), {placeholder: "Регион", groups: [[null, OPT.regions]], searchable: true, onChange: saveSoon});
+  msStat = MultiSelect($("#msStatuses"), {placeholder: "Любое", groups: [[null, OPT.statuses]], boxed: true, onChange: saveSoon});
+
+  STATE = await api("/api/state");
+  activeId = STATE.active || STATE.searches[0].id;
+  apply(STATE.searches.find(s => s.id === activeId).settings);
 
   $$(".field.num, .field.pct").forEach(el => el.addEventListener("input", () => { fmtField(el); saveSoon(); }));
+  $$(".field.date").forEach(el => el.addEventListener("change", saveSoon));
   $$("#keywords, #exclude").forEach(el => el.addEventListener("input", saveSoon));
-  $$("#sortBy, #maxPages, #onlyNew").forEach(el => el.addEventListener("change", saveSoon));
+  $$("#sortBy, #siteSort, #onlyNew").forEach(el => el.addEventListener("change", saveSoon));
   $$(".chip").forEach(c => c.addEventListener("click", () => { c.setAttribute("aria-pressed", c.getAttribute("aria-pressed") !== "true"); saveSoon(); }));
   $("#keywords").addEventListener("keydown", e => { if (e.key === "Enter") find(); });
   $("#btnFind").addEventListener("click", find);
-  $("#btnStop").addEventListener("click", () => { api("/api/stop", {}); $("#progText").textContent = "Останавливаю…"; });
-  $("#btnReset").addEventListener("click", () => { apply({...structuredClone(DEFAULTS), run: {...base.run, ...DEFAULTS.run}}); saveSoon(); });
-  $("#btnOpenExcel").addEventListener("click", () => lastFile && api("/api/open", {file: lastFile}));
-  $("#btnOpenFolder").addEventListener("click", () => api("/api/open", {}));
-  $("#files").addEventListener("click", e => { const f = e.target.dataset.open; if (f) api("/api/open", {file: f}); });
+  $("#btnReset").addEventListener("click", () => { apply(structuredClone(OPT.defaults)); saveSoon(); });
+  $("#btnFolder").addEventListener("click", () => api("/api/open", {}));
 
-  const st = await api("/api/status");
-  if (st.status === "running") { setRunning(true); startPolling(); }
-  else if (st.status === "done") renderResults(st);
+  $("#tabs").addEventListener("click", async e => {
+    if (e.target.id === "tabAdd") {
+      await saveNow();
+      const item = await api("/api/search/new", {});
+      STATE.searches.push(item);
+      activeId = null;
+      await switchTab(item.id);
+      return;
+    }
+    const close = e.target.closest("[data-close]");
+    if (close) {
+      e.stopPropagation();
+      const s = STATE.searches.find(x => x.id === close.dataset.close);
+      if (!confirm(`Удалить вкладку «${s.name}»? Процессы поиска и Excel-файлы останутся.`)) return;
+      await api("/api/search/delete", {id: s.id});
+      const st = await api("/api/state");
+      STATE = st;
+      if (!st.searches.some(x => x.id === activeId)) { activeId = null; await switchTab(st.active); }
+      renderTabs();
+      return;
+    }
+    const tab = e.target.closest(".tab");
+    if (tab) switchTab(tab.dataset.id);
+  });
+  $("#tabs").addEventListener("dblclick", e => { const tab = e.target.closest(".tab"); if (tab && !e.target.closest("[data-close]")) renameTab(tab); });
 
-  setInterval(() => fetch("/api/ping").catch(() => {}), 30000); // приложение понимает, что окно открыто
+  document.body.addEventListener("click", e => {
+    const btn = e.target.closest("[data-act]");
+    if (btn) { e.stopPropagation(); runAction(btn.dataset.act, btn.dataset.id); return; }
+    const proc = e.target.closest(".proc");
+    if (proc) { selectedRun = proc.dataset.run; renderProcs(); showResults(true); }
+  });
+
+  await refresh();
 }
 init();
 </script>

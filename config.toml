@@ -34,6 +34,18 @@ min_price_to = 0
 max_drop_pct_from = 0
 max_drop_pct_to = 0
 
+# Даты в формате ДД.ММ.ГГГГ, пусто — без ограничения
+# Начало приёма заявок (первый период торгов), например "01.10.2026"
+apps_start_from = ""
+apps_start_to = ""
+# Конец приёма заявок
+apps_end_from = ""
+apps_end_to = ""
+
+# Какие лоты сайт отдаёт первыми: new — новые, ending — скоро конец приёма заявок,
+# cheap — дешевле, expensive — дороже. Важно, когда смотрим не все лоты
+site_sort = "new"
+
 
 [filter]
 # Отбор «по разнице» — после открытия каждого лота
@@ -47,18 +59,28 @@ min_days_left = 0
 # Не дороже N ₽ за м² (для недвижимости и земли)
 max_price_per_m2 = 0
 
+# Цена в период: самая низкая цена лота по графику между этими датами (ДД.ММ.ГГГГ)
+window_from = ""
+window_to = ""
+# ...и она ниже начальной минимум на N %
+min_window_discount_pct = 0
+# ...и не дороже N ₽
+max_window_price = 0
+
 
 [run]
-# Страниц выдачи (по 20 лотов). 0 — все
-max_pages = 0
+# Просмотреть не больше N лотов. 0 — все
+max_lots = 0
+# Остановиться, когда найдено N подходящих. 0 — искать до конца
+stop_after_found = 0
 # Открывать каждый лот (нужно для начальной цены и графика снижения)
 fetch_details = true
 # Лоты берутся из кэша, если открывались не больше N дней назад
 cache_days = 7
 # Параллельных загрузок и пауза между запросами — не нагружаем сайт
-workers = 3
-delay_sec = 0.3
-# Сортировка: discount_now | difference | price_now | price_per_m2 | deadline
+workers = 5
+delay_sec = 0.15
+# Сортировка: discount_now | difference | price_now | price_per_m2 | deadline | window_min | trade_start
 sort_by = "discount_now"
 # true — в Excel только новые и подешевевшие с прошлого запуска
 only_new = false

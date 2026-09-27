@@ -126,6 +126,9 @@ def update_prices(lot, price_now=None, deadline=None, status=None, now=None):
         idx = schedule.index(row)
         next_row = schedule[idx + 1] if idx + 1 < len(schedule) else None
 
+    if not lot.get("trade_start") and schedule:
+        lot["trade_start"] = schedule[0]["start"]
+
     start, area = lot.get("start_price"), lot.get("area")
     lot.update({
         "price_now": price_now,
@@ -140,6 +143,42 @@ def update_prices(lot, price_now=None, deadline=None, status=None, now=None):
         "deposit": row["deposit"] if row and row.get("deposit") else lot.get("deposit"),
         "price_per_m2": round(price_now / area) if price_now and area else None,
     })
+    return lot
+
+
+def apply_window(lot, date_from=None, date_to=None, now=None):
+    """Цены лота в выбранном периоде (по графику снижения).
+
+    win_price_start — цена в начале периода, win_price_min — самая низкая цена внутри периода,
+    win_min_date — с какого числа она действует, win_discount — её снижение от начальной цены.
+    Если лот в этот период не торгуется — поля пустые.
+    """
+    keys = ("win_price_start", "win_price_min", "win_min_date", "win_discount")
+    if not date_from and not date_to:
+        for k in keys:
+            lot.pop(k, None)
+        return lot
+    now = now or datetime.now()
+    start = date_from or now
+    end = date_to or datetime.max
+    for k in keys:
+        lot[k] = None
+
+    schedule = lot.get("schedule") or []
+    if schedule:
+        rows = [r for r in schedule if r["price"] and r["start"] and r["end"] and r["start"] <= end and r["end"] > start]
+        if rows:
+            best = min(rows, key=lambda r: r["price"])
+            lot["win_price_start"] = rows[0]["price"]
+            lot["win_price_min"] = best["price"]
+            lot["win_min_date"] = max(best["start"], start)
+    else:
+        # Аукцион: цена не снижается, важно лишь, что заявки принимаются в этот период
+        opens, closes = lot.get("trade_start"), lot.get("apps_end") or lot.get("deadline")
+        if (not opens or opens <= end) and (not closes or closes > start):
+            lot["win_price_start"] = lot["win_price_min"] = lot.get("price_now")
+            lot["win_min_date"] = max(opens, start) if opens else start
+    lot["win_discount"] = _pct(lot["win_price_min"], lot.get("start_price"))
     return lot
 
 
@@ -172,6 +211,14 @@ def parse_lot(html, lot_id, now=None):
         if "окончание" in label.lower():
             deadline = dt
 
+    # Когда начинаются торги (первый период) и когда заканчивается приём заявок
+    trade_start = parse_date(_find(items, "Начало предоставления заявок"))
+    if schedule and schedule[0]["start"]:
+        trade_start = schedule[0]["start"]
+    apps_end = parse_date(_find(items, "Окончание предоставления заявок"))
+    if not apps_end and schedule:
+        apps_end = schedule[-1]["end"]
+
     # Площадь: сначала здание/помещение, иначе участок
     area = parse_money(items.get("Площадь", "")) or parse_money(items.get("Площадь участка", ""))
 
@@ -194,6 +241,8 @@ def parse_lot(html, lot_id, now=None):
         "trade_kind": _find(items, "Вид торгов"),
         "trade_form": form,
         "status": cost["status"],
+        "trade_start": trade_start,
+        "apps_end": apps_end,
         "start_price": start_price,
         "price_min": price_min,
         "deposit": cost.get("deposit"),

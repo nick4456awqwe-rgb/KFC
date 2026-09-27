@@ -1,17 +1,26 @@
-"""Весь поиск целиком: выдача → открытие лотов → отбор по разнице → Excel.
+"""Весь поиск целиком: выдача → открытие лотов → отбор по разнице → результат.
+
+Лоты проверяются по порядку выдачи, пока не случится одно из:
+  • просмотрено столько лотов, сколько задано (run.max_lots);
+  • найдено столько подходящих, сколько нужно (run.stop_after_found);
+  • пользователь остановил поиск (cancel);
+  • выдача закончилась.
+В любом случае возвращается то, что успели найти.
 
 Используется и приложением (app.py), и консольным запуском (kfc.py).
 """
 
+import re
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from .client import Cancelled, MetsClient
+from .describe import describe_settings
 from .excel import write_excel
-from .lot import parse_lot, update_prices
-from .search import build_query, fetch_cards, is_excluded, search_url
+from .lot import apply_window, parse_lot, update_prices
+from .search import build_query, is_excluded, iter_pages, search_url, to_date
 from .storage import LotCache
 
 SORTS = {
@@ -20,6 +29,15 @@ SORTS = {
     "price_now": (lambda l: l.get("price_now") or 0, False),
     "price_per_m2": (lambda l: l.get("price_per_m2") or float("inf"), False),
     "deadline": (lambda l: l.get("deadline") or datetime.max, False),
+    "window_min": (lambda l: l.get("win_price_min") or float("inf"), False),
+    "trade_start": (lambda l: l.get("trade_start") or datetime.max, False),
+}
+
+STOP_REASONS = {
+    None: "просмотрена вся выдача",
+    "user": "остановлен вручную",
+    "found": "найдено нужное количество",
+    "limit": "просмотрено заданное количество лотов",
 }
 
 
@@ -28,23 +46,15 @@ def card_status(card):
     return card.trade_type.split(". ", 1)[-1]
 
 
-def lot_from_card(card):
-    """Лот только по данным из выдачи (без открытия страницы) — начальной цены и графика нет."""
-    lot = {
-        "lot_id": card.lot_id,
-        "url": card.url,
-        "number": card.lot_id.replace("-", "-МЭТС-", 1),
-        "title": card.title,
-        "region": card.region,
-        "trade_kind": card.trade_type.split(". ", 1)[0],
-        "price_min": card.price_min,
-        "description": card.description,
-        "schedule": [],
-    }
-    return update_prices(lot, card.price_now, card.period_end, card_status(card))
+def _window(flt):
+    date_from = to_date(flt.get("window_from"))
+    date_to = to_date(flt.get("window_to"))
+    if date_to:
+        date_to += timedelta(days=1) - timedelta(minutes=1)  # включительно, до конца дня
+    return date_from, date_to
 
 
-def passes(lot, flt):
+def passes(lot, flt, window_on):
     pct = flt.get("min_discount_now_pct", 0)
     if pct and (lot.get("discount_now") or 0) * 100 < pct:
         return False
@@ -57,6 +67,15 @@ def passes(lot, flt):
     per_m2 = flt.get("max_price_per_m2", 0)
     if per_m2 and lot.get("price_per_m2") and lot["price_per_m2"] > per_m2:
         return False
+    if window_on:
+        if lot.get("win_price_min") is None:  # в выбранный период лот не торгуется
+            return False
+        wpct = flt.get("min_window_discount_pct", 0)
+        if wpct and (lot.get("win_discount") or 0) * 100 < wpct:
+            return False
+        wmax = flt.get("max_window_price", 0)
+        if wmax and lot["win_price_min"] > wmax:
+            return False
     return True
 
 
@@ -64,109 +83,192 @@ def _is_cheaper(lot):
     return bool(lot.get("prev_price") and lot.get("price_now") and lot["price_now"] < lot["prev_price"])
 
 
-def run_search(cfg, root, progress=None, cancel=None, fresh=False, max_pages=None, details=None):
-    """Выполняет поиск по настройкам cfg = {"search": ..., "filter": ..., "run": ...}.
+def run_search(settings, root, progress=None, cancel=None, client=None, cache=None, fresh=False):
+    """Выполняет поиск по настройкам {"search": ..., "filter": ..., "run": ...}.
 
-    progress(stage, done, total, text) вызывается по ходу работы; stage: search | lots | excel.
-    cancel — threading.Event: если выставить, поиск остановится (исключение Cancelled).
-    Возвращает словарь с путём к Excel, найденными лотами и статистикой.
+    progress(info) получает словарь: text, fraction (0..1 или None), viewed, found, total_on_site.
+    cancel — threading.Event: выставили — поиск заканчивается и возвращает найденное.
+    client/cache можно передать общие (приложение делит их между поисками).
     """
-    progress = progress or (lambda *a: None)
-    search, flt, run = cfg.get("search", {}), cfg.get("filter", {}), cfg.get("run", {})
-    max_pages = run.get("max_pages", 0) if max_pages is None else max_pages
-    details = run.get("fetch_details", True) if details is None else details
+    progress = progress or (lambda info: None)
+    search, flt, run = settings.get("search", {}), settings.get("filter", {}), settings.get("run", {})
     root = Path(root)
+    query = build_query(search)  # ConfigError при неверном регионе/категории/дате
+    date_from, date_to = _window(flt)
+    window_on = bool(date_from or date_to)
 
-    query = build_query(search)  # ConfigError при неверном регионе/категории
-    client = MetsClient(delay=run.get("delay_sec", 0.3), cancel=cancel)
-    cache = LotCache(root / "data" / "lots_cache.json", max_age_days=0 if fresh else run.get("cache_days", 7))
-    workers = run.get("workers", 3)
+    client = client or MetsClient(delay=run.get("delay_sec", 0.15))
+    cache = cache or LotCache(root / "data" / "lots_cache.json", run.get("cache_days", 7))
+    workers = run.get("workers", 5)
+    max_lots = int(run.get("max_lots") or 0) or int(run.get("max_pages") or 0) * 20
+    need = int(run.get("stop_after_found") or 0)
+    only_new = bool(run.get("only_new"))
+    exclude = search.get("exclude_words", [])
     started = time.monotonic()
 
-    progress("search", 0, 0, "Ищу лоты на МЭТС…")
-    stats = {"total_on_site": 0}
+    # viewed — лоты из выдачи, взятые в работу; checked — проверенные по фильтрам
+    st = {"viewed": 0, "checked": 0, "excluded": 0, "excluded_cards": 0, "errors": 0, "total_on_site": 0}
+    matched = []
 
-    def on_page(done, pages, total):
-        stats["total_on_site"] = total
-        progress("search", done, pages, f"Загружаю выдачу: страница {done} из {pages} (на сайте найдено {total})")
+    def consider(lot):
+        """Лот со всеми данными: исключения, цена в период, фильтры по разнице."""
+        st["checked"] += 1
+        if st["checked"] % 300 == 0:
+            cache.save()  # чтобы при сбое не открывать лоты заново
+        if is_excluded(f"{lot.get('title', '')} {lot.get('description', '')}", exclude):
+            st["excluded"] += 1
+            return
+        apply_window(lot, date_from, date_to)
+        if not passes(lot, flt, window_on):
+            return
+        cache.mark_seen(lot)
+        if only_new and not (lot["is_new"] or _is_cheaper(lot)):
+            return
+        matched.append(lot)
 
-    cards = fetch_cards(client, query, max_pages, workers, on_page=on_page)
-    exclude = search.get("exclude_words", [])
-    skipped = [c for c in cards if is_excluded(f"{c.title} {c.description}", exclude)]
-    cards = [c for c in cards if c not in skipped]
+    def stop_reason():
+        if cancel is not None and cancel.is_set():
+            return "user"
+        if need and len(matched) >= need:
+            return "found"
+        return None
 
-    lots, to_fetch = {}, []
-    for card in cards:
-        cached = cache.get(card.lot_id) if details else None
-        if cached:
-            lots[card.lot_id] = update_prices(cached, card.price_now, card.period_end, card_status(card))
-        elif details:
-            to_fetch.append(card)
+    def report(extra=""):
+        viewed, found, total = st["viewed"], len(matched), st["total_on_site"]
+        if need:
+            fraction = min(1.0, found / need)
+        elif max_lots:
+            fraction = min(1.0, st["checked"] / max_lots)
         else:
-            lots[card.lot_id] = lot_from_card(card)
+            fraction = min(1.0, (st["checked"] + st["excluded_cards"]) / total) if total else None
+        text = f"Проверено {st['checked']}"
+        text += f" из {max_lots}" if max_lots else (f" из {total}" if total else "")
+        text += f" · подходят {found}" + (f" из {need}" if need else "")
+        if fraction and fraction > 0.03 and not need:
+            eta = (time.monotonic() - started) / fraction * (1 - fraction)
+            text += f" · осталось ~{eta / 60:.0f} мин" if eta >= 90 else f" · осталось ~{eta:.0f} сек"
+        progress({"text": text + extra, "fraction": fraction, "viewed": viewed, "checked": st["checked"],
+                  "found": found, "total_on_site": total})
 
-    errors = 0
+    progress({"text": "Ищу лоты на МЭТС…", "fraction": None, "viewed": 0, "checked": 0, "found": 0, "total_on_site": 0})
+
+    pending = {}
+    pool = ThreadPoolExecutor(max_workers=workers)
+
+    def fetch(card):
+        lot = parse_lot(client.get(card.url, cancel=cancel), card.lot_id)
+        cache.put(lot)
+        return lot
+
+    def handle(done):
+        for future in done:
+            card = pending.pop(future)
+            try:
+                lot = future.result()
+            except Cancelled:
+                continue
+            except Exception:  # лот сняли с торгов или страница не открылась
+                st["errors"] += 1
+                continue
+            consider(lot)
+
+    seen = set()
     try:
-        if to_fetch:
-            from_cache = len(cards) - len(to_fetch)
-            progress("lots", 0, len(to_fetch), f"Открываю лоты: 0 из {len(to_fetch)} (ещё {from_cache} из кэша)")
-            fetch_started = time.monotonic()
-            with ThreadPoolExecutor(max_workers=workers) as pool:
-                futures = {pool.submit(lambda c: parse_lot(client.get(c.url), c.lot_id), c): c for c in to_fetch}
-                for i, future in enumerate(as_completed(futures), 1):
-                    card = futures[future]
-                    try:
-                        lot = future.result()
-                        cache.put(lot)
-                    except Cancelled:
-                        pool.shutdown(wait=False, cancel_futures=True)
-                        raise
-                    except Exception as e:  # лот мог быть снят или страница не открылась
-                        lot = lot_from_card(card)
-                        lot["description"] = f"[не удалось открыть: {e}] {lot['description']}"
-                        errors += 1
-                    lots[card.lot_id] = lot
-                    if i % 5 == 0 or i == len(to_fetch):
-                        eta = (time.monotonic() - fetch_started) / i * (len(to_fetch) - i)
-                        left = f"осталось ~{eta / 60:.0f} мин" if eta >= 60 else f"осталось ~{eta:.0f} сек"
-                        progress("lots", i, len(to_fetch), f"Открываю лоты: {i} из {len(to_fetch)}, {left}")
-                    if i % 200 == 0:
-                        cache.save()  # чтобы при обрыве не начинать заново
+        pages = iter_pages(client, query, cancel=cancel)
+        try:
+            for page, last_page, total, cards in pages:
+                st["total_on_site"] = total
+                for card in cards:
+                    if max_lots and st["viewed"] >= max_lots:
+                        break
+                    if card.lot_id in seen:
+                        continue
+                    seen.add(card.lot_id)
+                    if is_excluded(f"{card.title} {card.description}", exclude):
+                        st["excluded"] += 1
+                        st["excluded_cards"] += 1
+                        continue
+                    st["viewed"] += 1
+                    cached = cache.get(card.lot_id, fresh=fresh)
+                    if cached:
+                        consider(update_prices(cached, card.price_now, card.period_end, card_status(card)))
+                    else:
+                        pending[pool.submit(fetch, card)] = card
+                    if stop_reason():
+                        break
+                handle([f for f in list(pending) if f.done()])
+                # Не убегаем со страницами далеко вперёд, пока лоты открываются
+                while len(pending) > workers * 4 and not stop_reason():
+                    done, _ = wait(list(pending), return_when=FIRST_COMPLETED)
+                    handle(done)
+                report(f" · открываю лоты: {len(pending)}" if pending else "")
+                if stop_reason() or (max_lots and st["viewed"] >= max_lots):
+                    break
+        finally:
+            pages.close()
+
+        while pending and not stop_reason():
+            done, _ = wait(list(pending), return_when=FIRST_COMPLETED, timeout=1)
+            handle(done)
+            report(f" · открываю лоты: {len(pending)}" if pending else "")
+    except Cancelled:
+        pass  # остановили во время загрузки выдачи — отдаём то, что есть
     finally:
+        for future in pending:
+            future.cancel()
+        pool.shutdown(wait=True, cancel_futures=True)
         cache.save()
 
-    progress("excel", 0, 0, "Отбираю лоты и сохраняю Excel…")
-    ordered = [lots[c.lot_id] for c in cards if c.lot_id in lots]
-    # В карточке выдачи у многолотовых торгов название первого лота — проверяем ещё раз по самому лоту
-    ordered = [l for l in ordered if not is_excluded(f"{l['title']} {l.get('description', '')}", exclude)]
-    found = [lot for lot in ordered if passes(lot, flt)] if details else ordered
-    for lot in found:
-        cache.mark_seen(lot)
-    if run.get("only_new"):
-        found = [l for l in found if l["is_new"] or _is_cheaper(l)]
+    reason = stop_reason()
+    if reason is None and max_lots and st["viewed"] >= max_lots:
+        reason = "limit"
+
     key, reverse = SORTS.get(run.get("sort_by", "discount_now"), SORTS["discount_now"])
-    found.sort(key=key, reverse=reverse)
-    cache.save()
+    matched.sort(key=key, reverse=reverse)
+    if need:
+        matched = matched[:need]
 
-    stats.update({
-        "in_results": len(cards) + len(skipped),
-        "excluded": len(skipped),
-        "found": len(found),
-        "new": sum(1 for l in found if l.get("is_new")),
-        "cheaper": sum(1 for l in found if _is_cheaper(l)),
-        "errors": errors,
-        "minutes": round((time.monotonic() - started) / 60, 1),
-    })
+    stats = {
+        "total_on_site": st["total_on_site"],
+        "viewed": st["viewed"],
+        "checked": st["checked"],
+        "excluded": st["excluded"],
+        "found": len(matched),
+        "new": sum(1 for l in matched if l.get("is_new")),
+        "cheaper": sum(1 for l in matched if _is_cheaper(l)),
+        "errors": st["errors"],
+        "seconds": round(time.monotonic() - started),
+        "reason": reason,
+        "reason_text": STOP_REASONS.get(reason, ""),
+    }
+    progress({"text": f"Готово: подходят {len(matched)}", "fraction": 1.0, "viewed": st["viewed"],
+              "checked": st["checked"], "found": len(matched), "total_on_site": st["total_on_site"]})
+    return {"lots": matched, "stats": stats, "search_url": search_url(query), "window": window_on}
 
-    out = root / run.get("output_dir", "output") / f"lots_{datetime.now():%Y-%m-%d_%H-%M-%S}.xlsx"
-    write_excel(out, found, {
-        "Ссылка на поиск": search_url(query),
-        "Лотов в выдаче": stats["in_results"],
-        "Исключено по словам": stats["excluded"],
-        "Прошли фильтр": stats["found"],
-        "Новых": stats["new"],
-        "Ошибок загрузки": errors,
-        "Фильтр [search]": search,
-        "Фильтр [filter]": flt,
-    })
-    return {"file": out, "lots": found, "stats": stats, "search_url": search_url(query)}
+
+def safe_name(name):
+    name = re.sub(r'[\\/:*?"<>|]+', " ", name or "").strip()
+    return re.sub(r"\s+", " ", name)[:60] or "lots"
+
+
+def save_excel(result, settings, root, name="lots", log=None):
+    """Сохраняет результат поиска в Excel. Возвращает путь к файлу."""
+    run = settings.get("run", {})
+    out = Path(root) / run.get("output_dir", "output") / f"{safe_name(name)}_{datetime.now():%Y-%m-%d_%H-%M-%S}.xlsx"
+    s = result["stats"]
+    summary = [
+        ("Поиск", name),
+        ("Сохранено", datetime.now().strftime("%d.%m.%Y %H:%M")),
+        ("Чем закончился", s.get("reason_text", "")),
+        ("Найдено на сайте по фильтрам", s.get("total_on_site")),
+        ("Просмотрено лотов", s.get("viewed")),
+        ("Исключено по словам", s.get("excluded")),
+        ("Подошло", s.get("found")),
+        ("Из них новых / подешевели", f"{s.get('new', 0)} / {s.get('cheaper', 0)}"),
+        ("Не открылись", s.get("errors")),
+        ("Ссылка на этот поиск на сайте", result.get("search_url")),
+    ]
+    date_from, date_to = _window(settings.get("filter", {}))
+    write_excel(out, result["lots"], summary, describe_settings(settings), log or [],
+                window=bool(date_from or date_to), window_range=(date_from, date_to))
+    return out

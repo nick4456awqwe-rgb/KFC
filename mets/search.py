@@ -3,8 +3,9 @@
 import base64
 import json
 import re
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from datetime import datetime
 from urllib.parse import quote
 
 from bs4 import BeautifulSoup
@@ -47,6 +48,23 @@ def _num(value):
     return str(int(value)) if value else ""
 
 
+def to_date(value):
+    """'2026-10-01' или '01.10.2026' -> datetime; пусто -> None."""
+    if not value:
+        return None
+    value = str(value).strip()
+    for fmt in ("%Y-%m-%d", "%d.%m.%Y"):
+        try:
+            return datetime.strptime(value, fmt)
+        except ValueError:
+            pass
+    raise ConfigError(f"Не понимаю дату «{value}» — нужен формат ДД.ММ.ГГГГ")
+
+
+# Порядок выдачи на сайте — важен, когда смотрим не все лоты
+SITE_SORTS = {"new": "1", "ending": "2", "cheap": "4", "expensive": "3"}
+
+
 def build_query(search):
     """Секция [search] конфига -> словарь параметров, который понимает m-ets.ru."""
     q = {"displayby": "2"}  # показывать лоты, а не торги
@@ -87,6 +105,19 @@ def build_query(search):
             q[f"{prefix}_ot"] = _num(search[key_from])
         if _num(search.get(key_to)):
             q[f"{prefix}_do"] = _num(search[key_to])
+
+    dates = {
+        "date_nach": ("apps_start_from", "apps_start_to"),  # начало приёма заявок
+        "date_kon": ("apps_end_from", "apps_end_to"),       # конец приёма заявок
+    }
+    for prefix, (key_from, key_to) in dates.items():
+        for key, suffix in ((key_from, "ot"), (key_to, "do")):
+            d = to_date(search.get(key))
+            if d:
+                q[f"{prefix}_{suffix}"] = d.strftime("%d.%m.%Y")
+
+    if search.get("site_sort") in SITE_SORTS:
+        q["sortby"] = SITE_SORTS[search["site_sort"]]
     return q
 
 
@@ -162,30 +193,24 @@ def is_excluded(text, words):
     return any(w.strip().lower() in low for w in words if w.strip())
 
 
-def fetch_cards(client, q, max_pages=0, workers=3, on_page=None):
-    """Все карточки лотов из выдачи. max_pages=0 — все страницы.
+def iter_pages(client, q, cancel=None, prefetch=3):
+    """Страницы выдачи по порядку: (номер, всего страниц, всего лотов, карточки).
 
-    Первая страница сообщает, сколько их всего, остальные грузятся параллельно.
+    Следующие страницы грузятся заранее (prefetch штук параллельно), поэтому обход
+    идёт быстро, но его можно прервать в любой момент — дальше страницы не качаются.
     """
-    first, total, last_page = parse_search_page(client.get(search_url(q, 1)))
-    pages = min(last_page, max_pages) if max_pages else last_page
-    if on_page:
-        on_page(1, pages, total)
-
-    results = {1: first}
-    if pages > 1:
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = {pool.submit(lambda p: parse_search_page(client.get(search_url(q, p)))[0], p): p
-                       for p in range(2, pages + 1)}
-            for done, future in enumerate(as_completed(futures), 2):
-                results[futures[future]] = future.result()
-                if on_page:
-                    on_page(done, pages, total)
-
-    cards, seen = [], set()
-    for page in sorted(results):
-        for card in results[page]:
-            if card.lot_id not in seen:
-                seen.add(card.lot_id)
-                cards.append(card)
-    return cards
+    first, total, last = parse_search_page(client.get(search_url(q, 1), cancel=cancel))
+    yield 1, last, total, first
+    if last < 2:
+        return
+    pool = ThreadPoolExecutor(max_workers=prefetch)
+    futures, next_page = {}, 2
+    try:
+        for page in range(2, last + 1):
+            while next_page <= last and len(futures) < prefetch:
+                futures[next_page] = pool.submit(
+                    lambda p: parse_search_page(client.get(search_url(q, p), cancel=cancel))[0], next_page)
+                next_page += 1
+            yield page, last, total, futures.pop(page).result()
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)

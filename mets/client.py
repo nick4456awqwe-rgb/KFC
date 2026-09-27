@@ -1,9 +1,14 @@
-"""HTTP-клиент для m-ets.ru: одна сессия, пауза между запросами, повторы при ошибках."""
+"""HTTP-клиент для m-ets.ru: одна сессия, пауза между запросами, повторы при ошибках.
+
+Один клиент можно делить между несколькими поисками: пауза общая, поэтому сайт
+не получает больше запросов, чем задано, сколько бы поисков ни шло одновременно.
+"""
 
 import threading
 import time
 
 import requests
+from requests.adapters import HTTPAdapter
 
 BASE_URL = "https://m-ets.ru"
 USER_AGENT = (
@@ -17,17 +22,17 @@ class Cancelled(Exception):
 
 
 class MetsClient:
-    def __init__(self, delay=0.5, retries=3, timeout=30, cancel=None):
+    def __init__(self, delay=0.15, retries=3, timeout=25):
         self.delay = delay
         self.retries = retries
         self.timeout = timeout
-        self.cancel = cancel  # threading.Event: выставлен — новые запросы не отправляются
         self.session = requests.Session()
         self.session.headers.update({
             "User-Agent": USER_AGENT,
             "Accept-Language": "ru-RU,ru;q=0.9",
         })
-        # Общий замок: даже при нескольких потоках запросы уходят не чаще, чем раз в `delay` секунд.
+        adapter = HTTPAdapter(pool_connections=4, pool_maxsize=24)
+        self.session.mount("https://", adapter)
         self._lock = threading.Lock()
         self._last_request = 0.0
 
@@ -38,11 +43,12 @@ class MetsClient:
                 time.sleep(pause)
             self._last_request = time.monotonic()
 
-    def get(self, path, params=None):
+    def get(self, path, params=None, cancel=None):
+        """cancel — threading.Event поиска: если выставлен, запрос не отправляется (Cancelled)."""
         url = path if path.startswith("http") else f"{BASE_URL}/{path.lstrip('/')}"
         last_error = None
         for attempt in range(1, self.retries + 1):
-            if self.cancel and self.cancel.is_set():
+            if cancel is not None and cancel.is_set():
                 raise Cancelled()
             self._wait_turn()
             try:
@@ -54,5 +60,8 @@ class MetsClient:
                 return resp.text
             except requests.RequestException as e:
                 last_error = e
-                time.sleep(2 * attempt)
+                if cancel is not None and cancel.wait(2 * attempt):
+                    raise Cancelled()
+                if cancel is None:
+                    time.sleep(2 * attempt)
         raise RuntimeError(f"Не удалось загрузить {url}: {last_error}")
