@@ -5,3 +5,5 @@ output/
 data/
 ~$*.xlsx
 *.lnk
+build/
+dist/

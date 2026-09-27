@@ -287,10 +287,9 @@ def safe_name(name):
     return re.sub(r"\s+", " ", name)[:60] or "lots"
 
 
-def save_excel(result, settings, root, name="lots", log=None):
-    """Сохраняет результат поиска в Excel. Возвращает путь к файлу."""
-    run = settings.get("run", {})
-    out = Path(root) / run.get("output_dir", "output") / f"{safe_name(name)}_{datetime.now():%Y-%m-%d_%H-%M-%S}.xlsx"
+def save_excel(result, settings, out_dir, name="lots", log=None):
+    """Сохраняет результат поиска в Excel в папку out_dir. Возвращает путь к файлу."""
+    out = Path(out_dir) / f"{safe_name(name)}_{datetime.now():%Y-%m-%d_%H-%M-%S}.xlsx"
     s = result["stats"]
     summary = [
         ("Поиск", name),

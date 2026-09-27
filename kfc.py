@@ -69,7 +69,7 @@ def main():
         return 2
 
     s = result["stats"]
-    path = save_excel(result, cfg, ROOT, "Консоль")
+    path = save_excel(result, cfg, ROOT / run.get("output_dir", "output"), "Консоль")
     print(f"\n\nГотово за {s['seconds']} сек ({s['reason_text']}). Просмотрено {s['viewed']}, исключено по словам"
           f" {s['excluded']}, подошло {s['found']} (новых {s['new']}, подешевели {s['cheaper']}, ошибок {s['errors']})")
     print(f"Excel: {path}")

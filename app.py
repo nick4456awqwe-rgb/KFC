@@ -1,6 +1,6 @@
 """KFC — приложение для поиска лотов на МЭТС.
 
-Запуск: ярлык «KFC Поиск лотов», KFC.bat или python app.py.
+Запуск: KFC.exe (собранная версия, Python не нужен), ярлык «KFC Поиск лотов», KFC.bat или python app.py.
 Окно с вкладками поисков и фильтрами как на сайте. Каждый запуск поиска — «процесс»:
 его можно остановить, продолжить, сохранить в Excel то, что уже найдено, или удалить.
 Всё работает локально на этом компьютере. Окно закрыли — приложение само завершится.
@@ -24,14 +24,15 @@ from urllib.parse import parse_qs, urlparse
 
 from mets.client import MetsClient
 from mets.dicts import CATEGORY_GROUPS, REGIONS, STATUSES
+from mets.paths import APP_DIR, DATA_DIR, OUTPUT_DIR, config_path
 from mets.runner import run_search, save_excel
 from mets.search import ConfigError
 from mets.storage import LotCache, lots_from_json, lots_to_json
 
-VERSION = 3
-ROOT = Path(__file__).resolve().parent
-WEB = ROOT / "web"
-DATA = ROOT / "data"
+VERSION = 4
+ROOT = APP_DIR
+WEB = APP_DIR / "web"
+DATA = DATA_DIR
 RUNS_DIR = DATA / "runs"
 STATE_FILE = DATA / "app_state.json"
 RUNS_FILE = DATA / "runs.json"
@@ -73,12 +74,12 @@ def read_json(path, default):
 
 
 def default_settings():
-    with open(ROOT / "config.toml", "rb") as fh:
+    with open(config_path(), "rb") as fh:
         return tomllib.load(fh)
 
 
 def output_dir():
-    return ROOT / default_settings().get("run", {}).get("output_dir", "output")
+    return OUTPUT_DIR
 
 
 CONFIG = default_settings()
@@ -238,7 +239,7 @@ class Runs:
                     r["progress"] = info
 
         try:
-            result = run_search(with_tech_params(settings), ROOT, progress=progress, cancel=cancel,
+            result = run_search(with_tech_params(settings), DATA.parent, progress=progress, cancel=cancel,
                                 client=CLIENT, cache=CACHE, fresh=fresh)
             (RUNS_DIR / f"{rid}.json").parent.mkdir(parents=True, exist_ok=True)
             (RUNS_DIR / f"{rid}.json").write_text(lots_to_json(result["lots"]), encoding="utf-8")
@@ -271,7 +272,7 @@ class Runs:
             run = self._get(rid)
             self._log(run, "сохранён в Excel")
             settings, name, log_rows = run["settings"], run["name"], list(run["log"])
-        path = save_excel(result, settings, ROOT, name, log=log_rows)
+        path = save_excel(result, settings, output_dir(), name, log=log_rows)
         with self.lock:
             run = self._get(rid)
             if run is not None:
